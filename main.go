@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	appVersionStr = "v1.2"
+	appVersionStr = "v0.1"
+	nameOfService = "template-service"
 )
 
 var (
@@ -31,9 +32,9 @@ func main() {
 	flag.Parse()
 
 	svcConfig := &service.Config{
-		Name:        "template-service",
-		DisplayName: "template-service",
-		Description: "template-service",
+		Name:        nameOfService,
+		DisplayName: nameOfService,
+		Description: nameOfService,
 	}
 
 	prg := &program{}
