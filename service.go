@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/johansundell/template-service/handlers"
+	"github.com/johansundell/template-service/store"
 	"github.com/kardianos/service"
 )
 
@@ -30,26 +32,50 @@ func (p *program) Start(s service.Service) error {
 func (p *program) run() error {
 	logger.Infof("I'm running %v.", service.Platform())
 
-	router = NewRouter()
+	/*cfg := mysql.Config{
+		User:                 settings.MySqlSettings.Username,
+		Passwd:               settings.MySqlSettings.Password,
+		Net:                  "tcp",
+		Addr:                 settings.MySqlSettings.Host + ":3306",
+		DBName:               settings.MySqlSettings.Database,
+		AllowNativePasswords: true,
+		ParseTime:            true,
+	}
+	mydb, err := store.NewMySQLStorage(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}*/
+
+	mydb, err := store.NewSqliteDatabase("test.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := mydb.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
+	store := store.NewStorage(mydb)
+	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, appVersionStr)
+
+	router := NewRouter(handler)
 	srv := &http.Server{
-		Handler: router,
+		//Handler: router,
+		Handler: http.TimeoutHandler(router, time.Duration(settings.Timeout)*time.Second, "Timeout"),
 		Addr:    settings.Port,
 		// Good practice: enforce timeouts for servers you create!
-		WriteTimeout: 15 * time.Second,
-		ReadTimeout:  15 * time.Second,
+		//WriteTimeout: 15 * time.Second,
+		//ReadTimeout:  15 * time.Second,
 	}
 
 	go func() {
 		log.Println(srv.ListenAndServe())
 	}()
 
-	for {
-		select {
-		case <-p.exit:
-			srv.Close()
-			return nil
-		}
+	for range p.exit {
+		srv.Close()
+		return nil
 	}
+	return nil
 }
 
 func (p *program) Stop(s service.Service) error {

@@ -1,21 +1,19 @@
 package main
 
 import (
+	"embed"
 	"flag"
-	"fmt"
 	"log"
-	"net/http"
 
-	"github.com/gorilla/mux"
 	"github.com/kardianos/service"
 )
 
 const (
-	appVersionStr = "v0.1"
+	appVersionStr = "v0.0.1"
 	nameOfService = "template-service"
 )
 
-var (
+/*var (
 	routes = Routes{
 		Route{
 			"Index",
@@ -25,7 +23,13 @@ var (
 		},
 	}
 	router *mux.Router
-)
+)*/
+
+//go:embed tmpl/*.html
+var tpls embed.FS
+
+//go:embed assets/*
+var embededFiles embed.FS
 
 func main() {
 	svcFlag := flag.String("service", "", "Control the system service.")
@@ -71,6 +75,6 @@ func main() {
 	}
 }
 
-func defaultHandler(w http.ResponseWriter, r *http.Request) {
+/*func defaultHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "<html><body>We are up and running "+nameOfService+" on port "+settings.Port+" ;)</body></html>")
-}
+}*/

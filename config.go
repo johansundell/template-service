@@ -2,20 +2,16 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
-)
 
-type appSettings struct {
-	Debug bool   `json:"debug"`
-	Port  string `json:"port"`
-}
+	"github.com/johansundell/template-service/types"
+)
 
 const filenameSettings = "settings.json"
 
-var settings appSettings
+var settings types.AppSettings
 
 func init() {
 	ex, err := os.Executable()
@@ -24,11 +20,18 @@ func init() {
 	}
 
 	dir, _ := filepath.Split(ex)
-	dat, err := ioutil.ReadFile(dir + filenameSettings)
+	dat, err := os.ReadFile(dir + filenameSettings)
 	if err != nil {
-		data, _ := json.Marshal(settings)
-		ioutil.WriteFile(dir+filenameSettings, data, 0664)
-		log.Fatal("settings.json missing, " + err.Error())
+		settings = types.AppSettings{}
+		settings.Timeout = 15
+		settings.Port = ":8080"
+		settings.UseFileSystem = true
+		data, err := json.Marshal(settings)
+		if err != nil {
+			log.Fatal("Could not write settings", err)
+		}
+		os.WriteFile(dir+filenameSettings, data, 0664)
+		log.Fatal("settings.json missing")
 	}
 
 	if err := json.Unmarshal(dat, &settings); err != nil {
