@@ -22,7 +22,7 @@ func (s *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
 
 	w.Header().Add("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
-	enc.SetIndent("", "\t")
+	//enc.SetIndent("", "\t")
 	enc.Encode(p)
 	return nil
 }
