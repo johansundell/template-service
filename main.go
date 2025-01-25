@@ -13,18 +13,6 @@ const (
 	nameOfService = "template-service"
 )
 
-/*var (
-	routes = Routes{
-		Route{
-			"Index",
-			"GET",
-			"/",
-			defaultHandler,
-		},
-	}
-	router *mux.Router
-)*/
-
 //go:embed tmpl/*.html
 var tpls embed.FS
 

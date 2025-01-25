@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io/fs"
 	"net/http"
 	"os"
@@ -67,6 +68,23 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 		panic(err)
 	}
 	return http.FS(fsys)
+}
+
+func handlerWithErrors(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Version", appVersionStr)
+		if err := f(w, r); err != nil {
+			var status int
+			var statusErr interface {
+				error
+				HTTPStatus() int
+			}
+			if errors.As(err, &statusErr) {
+				status = statusErr.HTTPStatus()
+			}
+			http.Error(w, err.Error(), status)
+		}
+	}
 }
 
 func wwwLogger(inner http.Handler, name string) http.Handler {

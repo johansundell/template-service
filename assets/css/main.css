@@ -1,0 +1,27 @@
+body {
+    background-color: #000000;
+}
+
+div {
+    color: #FFFFFF;
+    font-family: courier;
+    font-size: 160%;
+}
+
+table {
+    color: #FFFFFF;
+    font-family: courier;
+    font-size: 160%;
+}
+
+input {
+    color: #000000;
+    font-family: courier;
+    font-size: 100%;
+}
+
+button {
+    color: #000000;
+    font-family: courier;
+    font-size: 100%;
+}

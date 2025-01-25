@@ -25,7 +25,7 @@ func init() {
 		settings = types.AppSettings{}
 		settings.Timeout = 15
 		settings.Port = ":8080"
-		settings.UseFileSystem = true
+		settings.UseFileSystem = false
 		data, err := json.Marshal(settings)
 		if err != nil {
 			log.Fatal("Could not write settings", err)
