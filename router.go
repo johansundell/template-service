@@ -1,21 +1,23 @@
 package main
 
 import (
-	"errors"
 	"io/fs"
 	"net/http"
 	"os"
 
 	"github.com/gorilla/mux"
 	"github.com/johansundell/template-service/handlers"
+	"github.com/johansundell/template-service/httperror"
 )
+
+type HandlerFuncWithError func(http.ResponseWriter, *http.Request) error
 
 // Route struct for the service
 type Route struct {
 	Name        string
 	Method      string
 	Pattern     string
-	HandlerFunc http.HandlerFunc
+	HandlerFunc HandlerFuncWithError
 }
 
 // Routes for the servcie web handlers
@@ -26,9 +28,7 @@ func NewRouter(handler *handlers.Handler) *mux.Router {
 	routes := getRoutes(handler)
 	router := mux.NewRouter().StrictSlash(true)
 	for _, route := range routes {
-		var handler http.Handler
-		handler = route.HandlerFunc
-		handler = wwwLogger(handler, route.Name)
+		handler := handlerWithErrors(route.HandlerFunc)
 		router.
 			Methods(route.Method).
 			Path(route.Pattern).
@@ -70,24 +70,17 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 	return http.FS(fsys)
 }
 
-func handlerWithErrors(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+func handlerWithErrors(inner HandlerFuncWithError) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Version", appVersionStr)
-		if err := f(w, r); err != nil {
-			var status int
-			var statusErr interface {
-				error
-				HTTPStatus() int
-			}
-			if errors.As(err, &statusErr) {
-				status = statusErr.HTTPStatus()
-			}
-			http.Error(w, err.Error(), status)
+		if err := inner(w, r); err != nil {
+			logger.Error(err.Error())
+			http.Error(w, httperror.StatusText(err), httperror.HTTPStatus(err))
 		}
 	}
 }
 
-func wwwLogger(inner http.Handler, name string) http.Handler {
+/*func wwwLogger(inner http.Handler, name string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if settings.Debug {
 			logger.Info(name + " " + r.RequestURI + " " + r.RemoteAddr + " " + r.Method)
@@ -95,4 +88,4 @@ func wwwLogger(inner http.Handler, name string) http.Handler {
 		w.Header().Set("X-Version", appVersionStr)
 		inner.ServeHTTP(w, r)
 	})
-}
+}*/

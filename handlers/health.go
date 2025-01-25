@@ -1,18 +1,17 @@
 package handlers
 
 import (
-	"log"
 	"net/http"
+
+	"github.com/johansundell/template-service/httperror"
 )
 
-func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 	const tmplFile = "health.html"
 
 	tmpl, err := h.getTemplate(true, tmplFile)
 	if err != nil {
-		log.Println(err)
-		http.Error(w, "Error", http.StatusInternalServerError)
-		return
+		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
 
 	data := map[string]interface{}{
@@ -22,9 +21,7 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tmpl.ExecuteTemplate(w, "base", data); err != nil {
-		log.Println(err)
-		http.Error(w, "Error", http.StatusInternalServerError)
-		//reportError(w, r, err)
-		return
+		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
+	return nil
 }
