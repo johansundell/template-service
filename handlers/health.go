@@ -15,9 +15,9 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	data := map[string]interface{}{
-		"Title":   "Health Check",
-		"Name":    h.nameOfService,
-		"Version": h.versionOfService,
+		"title":   "Health Check",
+		"name":    h.nameOfService,
+		"version": h.versionOfService,
 	}
 
 	if err := tmpl.ExecuteTemplate(w, "base", data); err != nil {
