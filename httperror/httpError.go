@@ -1,7 +1,6 @@
 package httperror
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 )
@@ -16,15 +15,8 @@ func (e statusError) Unwrap() error {
 }
 
 func HTTPStatus(err error) int {
-	if err == nil {
-		return 0
-	}
-	var statusErr interface {
-		error
-		HTTPStatus() int
-	}
-	if errors.As(err, &statusErr) {
-		return statusErr.HTTPStatus()
+	if myerr, ok := err.(statusError); ok {
+		return myerr.status
 	}
 	return http.StatusInternalServerError
 }
