@@ -4,7 +4,7 @@
 
 GHACCOUNT := johansundell
 NAME := template-service
-VERSION := v0.0.1
+VERSION := v0.0.2
 
 build:
 	go build -ldflags "-X 'main.Version=$(VERSION)'"
