@@ -63,7 +63,3 @@ func main() {
 		logger.Error(err)
 	}
 }
-
-/*func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "<html><body>We are up and running "+nameOfService+" on port "+settings.Port+" ;)</body></html>")
-}*/
