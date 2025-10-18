@@ -16,7 +16,7 @@ func (s *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
 		Result string `json:"result"`
 	}{Result: vars["argument"]}
 
-	if p.Result == "sudde" {
+	if p.Result == "notfound" {
 		return httperror.ReturnWithHTTPStatus(errors.New("Nope"), http.StatusNotFound)
 	}
 
