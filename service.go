@@ -30,7 +30,7 @@ func (p *program) Start(s service.Service) error {
 }
 
 func (p *program) run() error {
-	logger.Infof("I'm running %v.", service.Platform())
+	logger.Infof("I'm running %v, with version %v.", service.Platform(), Version)
 
 	/*cfg := mysql.Config{
 		User:                 settings.MySqlSettings.Username,
@@ -55,7 +55,7 @@ func (p *program) run() error {
 	}
 
 	store := store.NewStorage(mydb)
-	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, appVersionStr)
+	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, Version)
 
 	router := NewRouter(handler)
 	srv := &http.Server{

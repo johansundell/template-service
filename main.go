@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	appVersionStr = "v0.0.1"
 	nameOfService = "template-service"
 )
+
+var Version = "dev"
 
 //go:embed tmpl/*.html
 var tpls embed.FS

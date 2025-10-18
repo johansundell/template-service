@@ -72,7 +72,7 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 
 func handlerWithErrors(inner HandlerFuncWithError) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Version", appVersionStr)
+		w.Header().Set("X-Version", Version)
 		if err := inner(w, r); err != nil {
 			logger.Error(err.Error())
 			http.Error(w, httperror.StatusText(err), httperror.HTTPStatus(err))
