@@ -35,10 +35,7 @@ func NewRouter(handler *handlers.Handler) *mux.Router {
 	routes := getRoutes(handler)
 	router := mux.NewRouter().StrictSlash(true)
 	for _, route := range routes {
-		handler := handlerWithErrors(route.HandlerFunc)
-		if route.IsAPICall {
-			handler = handlerWithLogger(route.HandlerFunc, route.Name)
-		}
+		handler := handlerWithLogger(route.HandlerFunc, route.IsAPICall)
 		router.
 			Methods(route.Method).
 			Path(route.Pattern).
@@ -81,20 +78,9 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 	return http.FS(fsys)
 }
 
-func handlerWithErrors(inner HandlerFuncWithError) http.HandlerFunc {
+func handlerWithLogger(inner HandlerFuncWithError, logUsage bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Version", Version)
-		if err := inner(w, r); err != nil {
-			logger.Error(err.Error())
-			http.Error(w, httperror.StatusText(err), httperror.HTTPStatus(err))
-		}
-	}
-}
-
-func handlerWithLogger(inner HandlerFuncWithError, name string) http.HandlerFunc {
-	//fmt.Println("Adding logger to handler:", name)
-	return func(w http.ResponseWriter, r *http.Request) {
-		//fmt.Println("SUDDE")
 		// Read the request body once
 		var requestBody []byte
 		if r.Body != nil {
@@ -107,48 +93,53 @@ func handlerWithLogger(inner HandlerFuncWithError, name string) http.HandlerFunc
 		crw := &types.CustomResponseWriter{ResponseWriter: w, Body: new(bytes.Buffer)}
 
 		if err := inner(crw, r); err != nil {
-			log := types.UsageLog{
-				//IdKey:     k.ID,
-				Status:    httperror.HTTPStatus(err),
-				Method:    r.Method,
-				Error:     err.Error(),
-				Endpoint:  utils.GetUrl(r, r.URL.Path),
-				CreatedAt: time.Now(),
-				Response:  types.RawJSON("{}"),
-				Request:   types.RawJSON(requestBody),
-			}
-			if r.Body != nil {
-				bodyBytes, _ := io.ReadAll(r.Body)
-				if len(bodyBytes) == 0 {
-					log.Request = types.RawJSON("{}")
-				} else {
-					log.Request = types.RawJSON(bodyBytes)
+			if logUsage {
+				log := types.UsageLog{
+					//IdKey:     k.ID,
+					Status:    httperror.HTTPStatus(err),
+					Method:    r.Method,
+					Error:     err.Error(),
+					Endpoint:  utils.GetUrl(r, r.URL.Path),
+					CreatedAt: time.Now(),
+					Response:  types.RawJSON("{}"),
+					Request:   types.RawJSON(requestBody),
 				}
-			} else {
-				log.Request = types.RawJSON("{}")
+				if r.Body != nil {
+					bodyBytes, _ := io.ReadAll(r.Body)
+					if len(bodyBytes) == 0 {
+						log.Request = types.RawJSON("{}")
+					} else {
+						log.Request = types.RawJSON(bodyBytes)
+					}
+				} else {
+					log.Request = types.RawJSON("{}")
+				}
+				fmt.Println("Logging error:", log)
 			}
-			fmt.Println("Logging error:", log)
 			http.Error(w, httperror.StatusText(err), httperror.HTTPStatus(err))
 		} else {
 			// Capture the response body and status code
-			responseBody := crw.Body.String()
-			statusCode := crw.StatusCode
+			if logUsage {
+				responseBody := crw.Body.String()
+				statusCode := crw.StatusCode
 
-			if statusCode == 0 {
-				statusCode = http.StatusOK // Default to 200 if no status code was set
+				if statusCode == 0 {
+					statusCode = http.StatusOK // Default to 200 if no status code was set
+				}
+				log := types.UsageLog{
+					//IdKey:     k.ID,
+					Status:    statusCode,
+					Method:    r.Method,
+					Error:     "",
+					Endpoint:  utils.GetUrl(r, r.URL.Path),
+					CreatedAt: time.Now(),
+					Response:  types.RawJSON(responseBody),
+					Request:   types.RawJSON(requestBody),
+				}
+				fmt.Println("Logging success:", log)
 			}
-			log := types.UsageLog{
-				//IdKey:     k.ID,
-				Status:    statusCode,
-				Method:    r.Method,
-				Error:     "",
-				Endpoint:  utils.GetUrl(r, r.URL.Path),
-				CreatedAt: time.Now(),
-				Response:  types.RawJSON(responseBody),
-				Request:   types.RawJSON(requestBody),
-			}
-			fmt.Println("Logging success:", log)
 		}
 		//fmt.Println(crw.Body)
 	}
+
 }
