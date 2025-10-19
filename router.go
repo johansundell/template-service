@@ -37,7 +37,7 @@ func NewRouter(handler *handlers.Handler) *mux.Router {
 	for _, route := range routes {
 		handler := handlerWithErrors(route.HandlerFunc)
 		if route.IsAPICall {
-			handler = hadlerWithLogger(route.HandlerFunc, route.Name)
+			handler = handlerWithLogger(route.HandlerFunc, route.Name)
 		}
 		router.
 			Methods(route.Method).
@@ -91,7 +91,7 @@ func handlerWithErrors(inner HandlerFuncWithError) http.HandlerFunc {
 	}
 }
 
-func hadlerWithLogger(inner HandlerFuncWithError, name string) http.HandlerFunc {
+func handlerWithLogger(inner HandlerFuncWithError, name string) http.HandlerFunc {
 	//fmt.Println("Adding logger to handler:", name)
 	return func(w http.ResponseWriter, r *http.Request) {
 		//fmt.Println("SUDDE")
