@@ -1,13 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/httperror"
+	"github.com/johansundell/template-service/types"
+	"github.com/johansundell/template-service/utils"
 )
 
 type HandlerFuncWithError func(http.ResponseWriter, *http.Request) error
@@ -18,6 +24,7 @@ type Route struct {
 	Method      string
 	Pattern     string
 	HandlerFunc HandlerFuncWithError
+	IsAPICall   bool
 }
 
 // Routes for the servcie web handlers
@@ -29,6 +36,9 @@ func NewRouter(handler *handlers.Handler) *mux.Router {
 	router := mux.NewRouter().StrictSlash(true)
 	for _, route := range routes {
 		handler := handlerWithErrors(route.HandlerFunc)
+		if route.IsAPICall {
+			handler = hadlerWithLogger(route.HandlerFunc, route.Name)
+		}
 		router.
 			Methods(route.Method).
 			Path(route.Pattern).
@@ -53,6 +63,7 @@ func getRoutes(handler *handlers.Handler) Routes {
 			Method:      "GET",
 			Pattern:     "/ping/{argument}",
 			HandlerFunc: handler.Ping,
+			IsAPICall:   true,
 		},
 	}
 	return routes
@@ -80,12 +91,64 @@ func handlerWithErrors(inner HandlerFuncWithError) http.HandlerFunc {
 	}
 }
 
-/*func wwwLogger(inner http.Handler, name string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if settings.Debug {
-			logger.Info(name + " " + r.RequestURI + " " + r.RemoteAddr + " " + r.Method)
+func hadlerWithLogger(inner HandlerFuncWithError, name string) http.HandlerFunc {
+	//fmt.Println("Adding logger to handler:", name)
+	return func(w http.ResponseWriter, r *http.Request) {
+		//fmt.Println("SUDDE")
+		// Read the request body once
+		var requestBody []byte
+		if r.Body != nil {
+			requestBody, _ = io.ReadAll(r.Body)
+			// Reset the request body so it can be read again
+			r.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		}
-		w.Header().Set("X-Version", appVersionStr)
-		inner.ServeHTTP(w, r)
-	})
-}*/
+
+		// Wrap the original ResponseWriter
+		crw := &types.CustomResponseWriter{ResponseWriter: w, Body: new(bytes.Buffer)}
+
+		if err := inner(crw, r); err != nil {
+			log := types.UsageLog{
+				//IdKey:     k.ID,
+				Status:    httperror.HTTPStatus(err),
+				Method:    r.Method,
+				Error:     err.Error(),
+				Endpoint:  utils.GetUrl(r, r.URL.Path),
+				CreatedAt: time.Now(),
+				Response:  types.RawJSON("{}"),
+				Request:   types.RawJSON(requestBody),
+			}
+			if r.Body != nil {
+				bodyBytes, _ := io.ReadAll(r.Body)
+				if len(bodyBytes) == 0 {
+					log.Request = types.RawJSON("{}")
+				} else {
+					log.Request = types.RawJSON(bodyBytes)
+				}
+			} else {
+				log.Request = types.RawJSON("{}")
+			}
+			fmt.Println("Logging error:", log)
+			http.Error(w, httperror.StatusText(err), httperror.HTTPStatus(err))
+		} else {
+			// Capture the response body and status code
+			responseBody := crw.Body.String()
+			statusCode := crw.StatusCode
+
+			if statusCode == 0 {
+				statusCode = http.StatusOK // Default to 200 if no status code was set
+			}
+			log := types.UsageLog{
+				//IdKey:     k.ID,
+				Status:    statusCode,
+				Method:    r.Method,
+				Error:     "",
+				Endpoint:  utils.GetUrl(r, r.URL.Path),
+				CreatedAt: time.Now(),
+				Response:  types.RawJSON(responseBody),
+				Request:   types.RawJSON(requestBody),
+			}
+			fmt.Println("Logging success:", log)
+		}
+		//fmt.Println(crw.Body)
+	}
+}
