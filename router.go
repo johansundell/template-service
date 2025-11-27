@@ -9,14 +9,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/httperror"
 	"github.com/johansundell/template-service/types"
 	"github.com/johansundell/template-service/utils"
 )
 
-type HandlerFuncWithError func(http.ResponseWriter, *http.Request) error
+type HandlerFuncWithError func(*gin.Context) error
 
 // Route struct for the service
 type Route struct {
@@ -31,19 +31,18 @@ type Route struct {
 type Routes []Route
 
 // NewRouter creates a new web handler
-func NewRouter(handler *handlers.Handler) *mux.Router {
+func NewRouter(handler *handlers.Handler) *gin.Engine {
+	router := gin.Default()
 	routes := getRoutes(handler)
-	router := mux.NewRouter().StrictSlash(true)
+
 	for _, route := range routes {
-		handler := handlerWithLogger(route.HandlerFunc, route.IsAPICall)
-		router.
-			Methods(route.Method).
-			Path(route.Pattern).
-			Name(route.Name).
-			Handler(handler)
+		handlerFunc := handlerWithLogger(route.HandlerFunc, route.IsAPICall)
+		router.Handle(route.Method, route.Pattern, handlerFunc)
 	}
+
 	// Static files
-	router.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", http.FileServer(getStaticFiles(settings.UseFileSystem))))
+	router.StaticFS("/assets", getStaticFiles(settings.UseFileSystem))
+
 	return router
 }
 
@@ -58,7 +57,7 @@ func getRoutes(handler *handlers.Handler) Routes {
 		Route{
 			Name:        "Ping",
 			Method:      "GET",
-			Pattern:     "/ping/{argument}",
+			Pattern:     "/ping/:argument",
 			HandlerFunc: handler.Ping,
 			IsAPICall:   true,
 		},
@@ -78,60 +77,52 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 	return http.FS(fsys)
 }
 
-func handlerWithLogger(inner HandlerFuncWithError, logUsage bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Version", Version)
+func handlerWithLogger(inner HandlerFuncWithError, logUsage bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Version", Version)
+
 		// Read the request body once
 		var requestBody []byte
-		if r.Body != nil {
-			requestBody, _ = io.ReadAll(r.Body)
+		if c.Request.Body != nil {
+			requestBody, _ = io.ReadAll(c.Request.Body)
 			// Reset the request body so it can be read again
-			r.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		}
 
-		// Wrap the original ResponseWriter
-		crw := &types.CustomResponseWriter{ResponseWriter: w, Body: new(bytes.Buffer)}
+		// Wrap the original ResponseWriter with our Gin-compatible wrapper
+		blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
+		c.Writer = blw
 
-		if err := inner(crw, r); err != nil {
+		if err := inner(c); err != nil {
 			if logUsage {
 				log := types.UsageLog{
-					//IdKey:     k.ID,
 					Status:    httperror.HTTPStatus(err),
-					Method:    r.Method,
+					Method:    c.Request.Method,
 					Error:     err.Error(),
-					Endpoint:  utils.GetUrl(r, r.URL.Path),
+					Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
 					CreatedAt: time.Now(),
 					Response:  types.RawJSON("{}"),
 					Request:   types.RawJSON(requestBody),
 				}
-				if r.Body != nil {
-					bodyBytes, _ := io.ReadAll(r.Body)
-					if len(bodyBytes) == 0 {
-						log.Request = types.RawJSON("{}")
-					} else {
-						log.Request = types.RawJSON(bodyBytes)
-					}
-				} else {
+				if len(requestBody) == 0 {
 					log.Request = types.RawJSON("{}")
+				} else {
+					log.Request = types.RawJSON(requestBody)
 				}
 				fmt.Println("Logging error:", log)
 			}
-			http.Error(w, httperror.StatusText(err), httperror.HTTPStatus(err))
+			c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
 		} else {
 			// Capture the response body and status code
 			if logUsage {
-				responseBody := crw.Body.String()
-				statusCode := crw.StatusCode
+				responseBody := blw.body.String()
+				statusCode := c.Writer.Status()
 
-				if statusCode == 0 {
-					statusCode = http.StatusOK // Default to 200 if no status code was set
-				}
 				log := types.UsageLog{
-					//IdKey:     k.ID,
 					Status:    statusCode,
-					Method:    r.Method,
+					Method:    c.Request.Method,
 					Error:     "",
-					Endpoint:  utils.GetUrl(r, r.URL.Path),
+					Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
 					CreatedAt: time.Now(),
 					Response:  types.RawJSON(responseBody),
 					Request:   types.RawJSON(requestBody),
@@ -139,7 +130,16 @@ func handlerWithLogger(inner HandlerFuncWithError, logUsage bool) http.HandlerFu
 				fmt.Println("Logging success:", log)
 			}
 		}
-		//fmt.Println(crw.Body)
 	}
+}
 
+// Add this struct at the end of the file
+type bodyLogWriter struct {
+	gin.ResponseWriter
+	body *bytes.Buffer
+}
+
+func (w bodyLogWriter) Write(b []byte) (int, error) {
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
 }

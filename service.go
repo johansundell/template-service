@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -59,12 +60,8 @@ func (p *program) run() error {
 
 	router := NewRouter(handler)
 	srv := &http.Server{
-		//Handler: router,
 		Handler: http.TimeoutHandler(router, time.Duration(settings.Timeout)*time.Second, "Timeout"),
 		Addr:    settings.Port,
-		// Good practice: enforce timeouts for servers you create!
-		//WriteTimeout: 15 * time.Second,
-		//ReadTimeout:  15 * time.Second,
 	}
 
 	go func() {
@@ -72,7 +69,9 @@ func (p *program) run() error {
 	}()
 
 	for range p.exit {
-		srv.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
 		return nil
 	}
 	return nil

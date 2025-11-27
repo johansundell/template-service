@@ -1,28 +1,24 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/httperror"
 )
 
-func (s *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
-	vars := mux.Vars(r)
+func (s *Handler) Ping(c *gin.Context) error {
+	argument := c.Param("argument")
 
 	p := struct {
 		Result string `json:"result"`
-	}{Result: vars["argument"]}
+	}{Result: argument}
 
 	if p.Result == "notfound" {
 		return httperror.ReturnWithHTTPStatus(errors.New("Nope"), http.StatusNotFound)
 	}
 
-	w.Header().Add("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
-	//enc.SetIndent("", "\t")
-	enc.Encode(p)
+	c.JSON(http.StatusOK, p)
 	return nil
 }
