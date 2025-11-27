@@ -25,6 +25,7 @@ type Route struct {
 	Pattern     string
 	HandlerFunc HandlerFuncWithError
 	IsAPICall   bool
+	UseAuth     bool
 }
 
 // Routes for the servcie web handlers
