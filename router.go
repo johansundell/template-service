@@ -32,7 +32,12 @@ type Routes []Route
 
 // NewRouter creates a new web handler
 func NewRouter(handler *handlers.Handler) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode) // Set mode before creating the router
+
 	router := gin.Default()
+	//router := gin.New()
+	router.Use(gin.Recovery())
+
 	routes := getRoutes(handler)
 
 	for _, route := range routes {
@@ -64,6 +69,8 @@ func getRoutes(handler *handlers.Handler) Routes {
 	}
 	return routes
 }
+
+// TODO: Add auth header check function calls here
 
 func getStaticFiles(useLocal bool) http.FileSystem {
 	if useLocal {
