@@ -42,7 +42,7 @@ func NewRouter(handler *handlers.Handler) *gin.Engine {
 	routes := getRoutes(handler)
 
 	for _, route := range routes {
-		handlerFunc := handlerWithLogger(route.HandlerFunc, route.IsAPICall)
+		handlerFunc := handlerWithLogger(route.HandlerFunc, route.IsAPICall, route.UseAuth)
 		router.Handle(route.Method, route.Pattern, handlerFunc)
 	}
 
@@ -66,12 +66,44 @@ func getRoutes(handler *handlers.Handler) Routes {
 			Pattern:     "/ping/:argument",
 			HandlerFunc: handler.Ping,
 			IsAPICall:   true,
+			UseAuth:     true,
 		},
 	}
 	return routes
 }
 
-// TODO: Add auth header check function calls here
+// checkAuthHeader validates the Authorization header against the configured auth token
+func checkAuthHeader(c *gin.Context, authToken string) error {
+	if authToken == "" {
+		// If no auth token is configured, skip authentication
+		return nil
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return httperror.ReturnWithHTTPStatus(
+			fmt.Errorf("missing authorization header"),
+			http.StatusUnauthorized,
+		)
+	}
+
+	// Support both "Bearer <token>" and plain "<token>" formats
+	var token string
+	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		token = authHeader[7:]
+	} else {
+		token = authHeader
+	}
+
+	if token != authToken {
+		return httperror.ReturnWithHTTPStatus(
+			fmt.Errorf("invalid authorization token"),
+			http.StatusUnauthorized,
+		)
+	}
+
+	return nil
+}
 
 func getStaticFiles(useLocal bool) http.FileSystem {
 	if useLocal {
@@ -85,9 +117,17 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 	return http.FS(fsys)
 }
 
-func handlerWithLogger(inner HandlerFuncWithError, logUsage bool) gin.HandlerFunc {
+func handlerWithLogger(inner HandlerFuncWithError, logUsage bool, useAuth bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("X-Version", Version)
+
+		// Check authentication if required
+		if useAuth {
+			if err := checkAuthHeader(c, settings.AuthToken); err != nil {
+				c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
+				return
+			}
+		}
 
 		// Read the request body once
 		var requestBody []byte
