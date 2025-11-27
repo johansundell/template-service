@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -89,13 +91,14 @@ func checkAuthHeader(c *gin.Context, authToken string) error {
 
 	// Support both "Bearer <token>" and plain "<token>" formats
 	var token string
-	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+	if strings.HasPrefix(authHeader, "Bearer ") && len(authHeader) > 7 {
 		token = authHeader[7:]
 	} else {
 		token = authHeader
 	}
 
-	if token != authToken {
+	// Use constant time comparison to prevent timing attacks
+	if subtle.ConstantTimeCompare([]byte(token), []byte(authToken)) != 1 {
 		return httperror.ReturnWithHTTPStatus(
 			fmt.Errorf("invalid authorization token"),
 			http.StatusUnauthorized,

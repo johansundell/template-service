@@ -50,6 +50,12 @@ func TestAuthHeaderCheck(t *testing.T) {
 			headerValue:    "",
 			expectedStatus: http.StatusOK,
 		},
+		{
+			name:           "Bearer with empty token",
+			authToken:      "test-token-123",
+			headerValue:    "Bearer ",
+			expectedStatus: http.StatusUnauthorized,
+		},
 	}
 
 	for _, tt := range tests {
