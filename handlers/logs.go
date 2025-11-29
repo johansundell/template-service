@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/johansundell/template-service/httperror"
 )
 
 func (h *Handler) GetLogsHandler(c *gin.Context) error {
@@ -13,12 +15,12 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 
 	from, err := time.Parse("2006-01-02", fromStr)
 	if err != nil {
-		return err
+		return httperror.ReturnWithHTTPStatus(errors.New("wrong date format in from"), http.StatusBadRequest)
 	}
 
 	to, err := time.Parse("2006-01-02", toStr)
 	if err != nil {
-		return err
+		return httperror.ReturnWithHTTPStatus(errors.New("wrong date format in to"), http.StatusBadRequest)
 	}
 
 	// Adjust 'to' date to include the entire day
@@ -26,7 +28,7 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 
 	logs, err := h.store.GetLogs(from, to)
 	if err != nil {
-		return err
+		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
 	//fmt.Println(logs)
 
