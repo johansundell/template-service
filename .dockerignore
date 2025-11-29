@@ -1,0 +1,9 @@
+.git
+.vscode
+bin
+dist
+build
+*.exe
+*.test
+test.db
+.env

@@ -1,5 +1,6 @@
 /settings.json
 /debug
+/template-service
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -16,3 +17,4 @@
 *.db
 /dist
 /build
+.env

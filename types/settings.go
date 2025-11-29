@@ -7,6 +7,7 @@ type AppSettings struct {
 	Timeout       int    `json:"timeout"`
 	UseMysql      bool   `json:"useMysql"`
 	UseSqlite     bool   `json:"useSqlite"`
+	AuthToken     string `json:"authToken"`
 	MySqlSettings struct {
 		Username string `json:"username"`
 		Password string `json:"password"`

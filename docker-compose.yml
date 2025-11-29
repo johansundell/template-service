@@ -1,0 +1,13 @@
+services:
+  template-service:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./test.db:/app/test.db
+    environment:
+      - PORT=:8080
+      - USE_FILE_SYSTEM=false
+      - USE_SQLITE=true
+      - DEBUG=true
+    restart: unless-stopped

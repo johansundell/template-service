@@ -2,21 +2,24 @@ package main
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/httperror"
+	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/types"
 	"github.com/johansundell/template-service/utils"
 )
 
-type HandlerFuncWithError func(http.ResponseWriter, *http.Request) error
+type HandlerFuncWithError func(*gin.Context) error
 
 // Route struct for the service
 type Route struct {
@@ -24,26 +27,31 @@ type Route struct {
 	Method      string
 	Pattern     string
 	HandlerFunc HandlerFuncWithError
-	IsAPICall   bool
+	UseLogger   bool
+	UseAuth     bool
 }
 
 // Routes for the servcie web handlers
 type Routes []Route
 
 // NewRouter creates a new web handler
-func NewRouter(handler *handlers.Handler) *mux.Router {
+func NewRouter(handler *handlers.Handler, s *store.Storage) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode) // Set mode before creating the router
+
+	//router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
+
 	routes := getRoutes(handler)
-	router := mux.NewRouter().StrictSlash(true)
+
 	for _, route := range routes {
-		handler := handlerWithLogger(route.HandlerFunc, route.IsAPICall)
-		router.
-			Methods(route.Method).
-			Path(route.Pattern).
-			Name(route.Name).
-			Handler(handler)
+		handlerFunc := handlerWithLogger(route.HandlerFunc, route.UseLogger, route.UseAuth, s)
+		router.Handle(route.Method, route.Pattern, handlerFunc)
 	}
+
 	// Static files
-	router.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", http.FileServer(getStaticFiles(settings.UseFileSystem))))
+	router.StaticFS("/assets", getStaticFiles(settings.UseFileSystem))
+
 	return router
 }
 
@@ -58,12 +66,54 @@ func getRoutes(handler *handlers.Handler) Routes {
 		Route{
 			Name:        "Ping",
 			Method:      "GET",
-			Pattern:     "/ping/{argument}",
+			Pattern:     "/ping/:argument",
 			HandlerFunc: handler.Ping,
-			IsAPICall:   true,
+			UseLogger:   true,
+		},
+		Route{
+			Name:        "Pong",
+			Method:      "GET",
+			Pattern:     "/pong/:argument",
+			HandlerFunc: handler.Pong,
+			UseLogger:   true,
+			UseAuth:     true,
 		},
 	}
 	return routes
+}
+
+// checkAuthHeader validates the Authorization header against the configured auth token
+func checkAuthHeader(c *gin.Context, authToken string) error {
+	if authToken == "" {
+		// If no auth token is configured, skip authentication
+		return nil
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return httperror.ReturnWithHTTPStatus(
+			fmt.Errorf("missing authorization header"),
+			http.StatusUnauthorized,
+		)
+	}
+
+	// Support both "Bearer <token>" and plain "<token>" formats
+	var token string
+	if strings.HasPrefix(authHeader, "Bearer ") && len(authHeader) > 7 {
+		token = authHeader[7:]
+	} else {
+		token = authHeader
+	}
+
+	// Use constant time comparison to prevent timing attacks
+	if subtle.ConstantTimeCompare([]byte(token), []byte(authToken)) != 1 {
+		return httperror.ReturnWithHTTPStatus(
+			fmt.Errorf("invalid authorization token"),
+			http.StatusUnauthorized,
+		)
+	}
+
+	return nil
 }
 
 func getStaticFiles(useLocal bool) http.FileSystem {
@@ -78,68 +128,80 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 	return http.FS(fsys)
 }
 
-func handlerWithLogger(inner HandlerFuncWithError, logUsage bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Version", Version)
-		// Read the request body once
-		var requestBody []byte
-		if r.Body != nil {
-			requestBody, _ = io.ReadAll(r.Body)
-			// Reset the request body so it can be read again
-			r.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+func handlerWithLogger(inner HandlerFuncWithError, logUsage bool, useAuth bool, s *store.Storage) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Version", Version)
+
+		// Check authentication if required
+		if useAuth {
+			if err := checkAuthHeader(c, settings.AuthToken); err != nil {
+				c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
+				return
+			}
 		}
 
-		// Wrap the original ResponseWriter
-		crw := &types.CustomResponseWriter{ResponseWriter: w, Body: new(bytes.Buffer)}
+		// Read the request body once
+		var requestBody []byte
+		if c.Request.Body != nil {
+			requestBody, _ = io.ReadAll(c.Request.Body)
+			//fmt.Println("Request body:", string(requestBody))
+			// Reset the request body so it can be read again
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+		}
 
-		if err := inner(crw, r); err != nil {
+		// Wrap the original ResponseWriter with our Gin-compatible wrapper
+		blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
+		c.Writer = blw
+
+		if err := inner(c); err != nil {
 			if logUsage {
 				log := types.UsageLog{
-					//IdKey:     k.ID,
 					Status:    httperror.HTTPStatus(err),
-					Method:    r.Method,
+					Method:    c.Request.Method,
 					Error:     err.Error(),
-					Endpoint:  utils.GetUrl(r, r.URL.Path),
+					Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
 					CreatedAt: time.Now(),
 					Response:  types.RawJSON("{}"),
 					Request:   types.RawJSON(requestBody),
 				}
-				if r.Body != nil {
-					bodyBytes, _ := io.ReadAll(r.Body)
-					if len(bodyBytes) == 0 {
-						log.Request = types.RawJSON("{}")
-					} else {
-						log.Request = types.RawJSON(bodyBytes)
-					}
-				} else {
+				if len(requestBody) == 0 {
 					log.Request = types.RawJSON("{}")
+				} else {
+					log.Request = types.RawJSON(requestBody)
 				}
 				fmt.Println("Logging error:", log)
+				s.LogRequest(log.Status, log.Method, log.Error, log.Endpoint, log.CreatedAt.Format(time.RFC3339), string(log.Response), string(log.Request))
 			}
-			http.Error(w, httperror.StatusText(err), httperror.HTTPStatus(err))
+			c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
 		} else {
 			// Capture the response body and status code
 			if logUsage {
-				responseBody := crw.Body.String()
-				statusCode := crw.StatusCode
+				responseBody := blw.body.String()
+				statusCode := c.Writer.Status()
 
-				if statusCode == 0 {
-					statusCode = http.StatusOK // Default to 200 if no status code was set
-				}
 				log := types.UsageLog{
-					//IdKey:     k.ID,
 					Status:    statusCode,
-					Method:    r.Method,
+					Method:    c.Request.Method,
 					Error:     "",
-					Endpoint:  utils.GetUrl(r, r.URL.Path),
+					Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
 					CreatedAt: time.Now(),
 					Response:  types.RawJSON(responseBody),
 					Request:   types.RawJSON(requestBody),
 				}
 				fmt.Println("Logging success:", log)
+				s.LogRequest(log.Status, log.Method, log.Error, log.Endpoint, log.CreatedAt.Format(time.RFC3339), string(log.Response), string(log.Request))
 			}
 		}
-		//fmt.Println(crw.Body)
 	}
+}
 
+// Add this struct at the end of the file
+type bodyLogWriter struct {
+	gin.ResponseWriter
+	body *bytes.Buffer
+}
+
+func (w bodyLogWriter) Write(b []byte) (int, error) {
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
 }

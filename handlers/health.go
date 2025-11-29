@@ -3,10 +3,11 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/httperror"
 )
 
-func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HealthCheck(c *gin.Context) error {
 	const tmplFile = "health.html"
 
 	tmpl, err := h.getTemplate(true, tmplFile)
@@ -20,7 +21,7 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 		"version": h.versionOfService,
 	}
 
-	if err := tmpl.ExecuteTemplate(w, "base", data); err != nil {
+	if err := tmpl.ExecuteTemplate(c.Writer, "base", data); err != nil {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
 	return nil
