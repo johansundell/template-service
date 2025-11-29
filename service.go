@@ -58,7 +58,7 @@ func (p *program) run() error {
 	store := store.NewStorage(mydb)
 	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, Version)
 
-	router := NewRouter(handler)
+	router := NewRouter(handler, store)
 	srv := &http.Server{
 		Handler: http.TimeoutHandler(router, time.Duration(settings.Timeout)*time.Second, "Timeout"),
 		Addr:    settings.Port,

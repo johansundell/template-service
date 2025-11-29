@@ -15,5 +15,19 @@ func NewSqliteDatabase(file string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS request_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		status INTEGER,
+		method TEXT,
+		error TEXT,
+		endpoint TEXT,
+		created_at DATETIME,
+		response TEXT,
+		request TEXT
+	)`)
+	if err != nil {
+		return nil, err
+	}
+
 	return db, nil
 }
