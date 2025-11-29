@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -29,7 +28,7 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(logs)
+	//fmt.Println(logs)
 
 	c.JSON(http.StatusOK, logs)
 	return nil
