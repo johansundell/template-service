@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -17,9 +18,18 @@ func TestAuthCheck(t *testing.T) {
 	// Mock settings
 	settings.AuthToken = "secret-token"
 
-	// Mock handler and store (nil is fine for this test as we stop at auth)
+	// Setup temporary database
+	tmpFile := "test_router_auth.db"
+	defer os.Remove(tmpFile)
+
+	db, err := store.NewSqliteDatabase(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	s := store.NewStorage(db)
 	h := &handlers.Handler{}
-	s := &store.Storage{}
 
 	router := NewRouter(h, s)
 
@@ -45,11 +55,6 @@ func TestAuthCheck(t *testing.T) {
 	})
 
 	t.Run("Valid Auth Header", func(t *testing.T) {
-		// We need a real handler for success case because it will try to call handler.Pong
-		// But handler.Pong might panic if dependencies are nil?
-		// Let's check handler.Pong implementation. It just returns JSON.
-		// So it should be fine.
-
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/pong/test", nil)
 		req.Header.Set("Authorization", "secret-token")
