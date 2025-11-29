@@ -78,6 +78,13 @@ func getRoutes(handler *handlers.Handler) Routes {
 			UseLogger:   true,
 			UseAuth:     true,
 		},
+		Route{
+			Name:        "GetLogs",
+			Method:      "GET",
+			Pattern:     "/logs/:from/:to",
+			HandlerFunc: handler.GetLogsHandler,
+			UseAuth:     true,
+		},
 	}
 	return routes
 }
