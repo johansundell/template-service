@@ -15,10 +15,20 @@ func (h *Handler) HealthCheck(c *gin.Context) error {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
 
+	if err := h.store.Ping(); err != nil {
+		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
+	}
+
+	dbStatus := "OK"
+	if err := h.store.Ping(); err != nil {
+		dbStatus = err.Error()
+	}
+
 	data := map[string]interface{}{
-		"title":   "Health Check",
-		"name":    h.nameOfService,
-		"version": h.versionOfService,
+		"title":    "Health Check",
+		"name":     h.nameOfService,
+		"version":  h.versionOfService,
+		"dbStatus": dbStatus,
 	}
 
 	if err := tmpl.ExecuteTemplate(c.Writer, "base", data); err != nil {

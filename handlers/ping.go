@@ -8,7 +8,7 @@ import (
 	"github.com/johansundell/template-service/httperror"
 )
 
-func (s *Handler) Ping(c *gin.Context) error {
+func (h *Handler) Ping(c *gin.Context) error {
 	argument := c.Param("argument")
 
 	p := struct {

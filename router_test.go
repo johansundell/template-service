@@ -29,7 +29,7 @@ func TestAuthCheck(t *testing.T) {
 	defer db.Close()
 
 	s := store.NewStorage(db)
-	h := &handlers.Handler{}
+	h := handlers.NewHandler(s, false, nil, "test", "dev")
 
 	router := NewRouter(h, s)
 
