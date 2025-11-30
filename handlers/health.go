@@ -8,17 +8,6 @@ import (
 )
 
 func (h *Handler) HealthCheck(c *gin.Context) error {
-	const tmplFile = "health.html"
-
-	tmpl, err := h.getTemplate(true, tmplFile)
-	if err != nil {
-		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
-	}
-
-	if err := h.store.Ping(); err != nil {
-		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
-	}
-
 	dbStatus := "OK"
 	if err := h.store.Ping(); err != nil {
 		dbStatus = err.Error()
@@ -29,6 +18,18 @@ func (h *Handler) HealthCheck(c *gin.Context) error {
 		"name":     h.nameOfService,
 		"version":  h.versionOfService,
 		"dbStatus": dbStatus,
+	}
+
+	if c.GetHeader("Accept") == "application/json" {
+		c.JSON(http.StatusOK, data)
+		return nil
+	}
+
+	const tmplFile = "health.html"
+
+	tmpl, err := h.getTemplate(true, tmplFile)
+	if err != nil {
+		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
 
 	if err := tmpl.ExecuteTemplate(c.Writer, "base", data); err != nil {
