@@ -166,7 +166,6 @@ func LoggerMiddleware(s *store.Storage) func(HandlerFuncWithError) HandlerFuncWi
 			var requestBody []byte
 			if c.Request.Body != nil {
 				requestBody, _ = io.ReadAll(c.Request.Body)
-				// SUDDE: Check this
 				c.Request.Body.Close()
 
 				// Reset the request body so it can be read again
