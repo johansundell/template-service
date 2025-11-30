@@ -135,6 +135,41 @@ if err != nil {
 // 'data' contains the raw bytes of the file
 ```
 
+### Schema Modification
+
+#### Create Table
+
+```go
+tableDef := fmsodata.TableDefinition{
+    TableName: "NewTable",
+    Fields: []fmsodata.FieldDefinition{
+        {Name: "ID", Type: "NUMERIC", Primary: true, Unique: true},
+        {Name: "Name", Type: "VARCHAR"},
+        {Name: "Description", Type: "VARCHAR"},
+    },
+}
+
+err := client.CreateTable(context.Background(), tableDef)
+```
+
+#### Delete Table
+
+```go
+err := client.DeleteTable(context.Background(), "NewTable")
+```
+
+#### Create Index
+
+```go
+err := client.CreateIndex(context.Background(), "TableName", "FieldName")
+```
+
+#### Delete Index
+
+```go
+err := client.DeleteIndex(context.Background(), "TableName", "IndexName")
+```
+
 ### Example: Upload and Verify Container Data
 
 ```go
@@ -156,5 +191,104 @@ if err != nil {
 // 4. Verify integrity
 if bytes.Equal(fileData, downloadedData) {
     fmt.Println("Success: Downloaded data matches uploaded file.")
+}
+```
+
+### Example: Migration Script
+
+This example demonstrates how to fetch data from an external API and migrate it to a FileMaker table.
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/johansundell/template-service/fmsodata"
+)
+
+type LogEntry struct {
+	ID        int         `json:"id"`
+	Status    int         `json:"status"`
+	Method    string      `json:"method"`
+	Error     string      `json:"error"`
+	Endpoint  string      `json:"endpoint"`
+	CreatedAt string      `json:"created_at"`
+	Response  interface{} `json:"response"`
+	Request   interface{} `json:"request"`
+}
+
+func main() {
+	// 1. Initialize Client
+	config := fmsodata.ClientConfig{
+		Host:     "https://your-filemaker-server.com",
+		Database: "YourDatabase",
+		Username: "username",
+		Password: "password",
+		Timeout:  60 * time.Second,
+	}
+	client := fmsodata.NewClient(config)
+	ctx := context.Background()
+
+	tableName := "Logs"
+
+	// 2. Create Table
+	tableDef := fmsodata.TableDefinition{
+		TableName: tableName,
+		Fields: []fmsodata.FieldDefinition{
+			{Name: "ID", Type: "NUMERIC", Primary: true, Unique: true},
+			{Name: "Status", Type: "NUMERIC"},
+			{Name: "Method", Type: "VARCHAR"},
+			{Name: "Error", Type: "VARCHAR"},
+			{Name: "Endpoint", Type: "VARCHAR"},
+			{Name: "CreatedAt", Type: "TIMESTAMP"},
+			{Name: "Response", Type: "VARCHAR"},
+			{Name: "Request", Type: "VARCHAR"},
+		},
+	}
+
+	err := client.CreateTable(ctx, tableDef)
+	if err != nil {
+		log.Fatalf("Failed to create table: %v", err)
+	}
+
+	// 3. Fetch Logs (Example source)
+	resp, err := http.Get("http://api.example.com/logs")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var logs []LogEntry
+	if err := json.NewDecoder(resp.Body).Decode(&logs); err != nil {
+		log.Fatal(err)
+	}
+
+	// 4. Upload Logs
+	for _, entry := range logs {
+		responseJSON, _ := json.Marshal(entry.Response)
+		requestJSON, _ := json.Marshal(entry.Request)
+
+		record := map[string]interface{}{
+			"ID":        entry.ID,
+			"Status":    entry.Status,
+			"Method":    entry.Method,
+			"Error":     entry.Error,
+			"Endpoint":  entry.Endpoint,
+			"CreatedAt": entry.CreatedAt,
+			"Response":  string(responseJSON),
+			"Request":   string(requestJSON),
+		}
+
+		_, err := client.CreateRecord(ctx, tableName, record)
+		if err != nil {
+			log.Printf("Failed to create record %d: %v", entry.ID, err)
+		}
+	}
 }
 ```
