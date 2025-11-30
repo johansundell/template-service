@@ -45,8 +45,18 @@ func NewRouter(handler *handlers.Handler, s *store.Storage) *gin.Engine {
 	routes := getRoutes(handler)
 
 	for _, route := range routes {
-		handlerFunc := handlerWithLogger(route.HandlerFunc, route.UseLogger, route.UseAuth, s)
-		router.Handle(route.Method, route.Pattern, handlerFunc)
+		// Apply Auth Middleware
+		if route.UseAuth {
+			route.HandlerFunc = AuthMiddleware(settings.AuthToken)(route.HandlerFunc)
+		}
+
+		// Apply Logger Middleware
+		if route.UseLogger {
+			route.HandlerFunc = LoggerMiddleware(s)(route.HandlerFunc)
+		}
+
+		// Convert to Gin Handler and register
+		router.Handle(route.Method, route.Pattern, WrapHandler(route.HandlerFunc))
 	}
 
 	// Static files
@@ -90,37 +100,42 @@ func getRoutes(handler *handlers.Handler) Routes {
 }
 
 // checkAuthHeader validates the Authorization header against the configured auth token
-func checkAuthHeader(c *gin.Context, authToken string) error {
-	if authToken == "" {
-		// If no auth token is configured, skip authentication
-		return nil
-	}
+// AuthMiddleware returns a middleware that validates the Authorization header
+func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWithError {
+	return func(inner HandlerFuncWithError) HandlerFuncWithError {
+		return func(c *gin.Context) error {
+			if authToken == "" {
+				// If no auth token is configured, skip authentication
+				return inner(c)
+			}
 
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		return httperror.ReturnWithHTTPStatus(
-			fmt.Errorf("missing authorization header"),
-			http.StatusUnauthorized,
-		)
-	}
+			authHeader := c.GetHeader("Authorization")
+			if authHeader == "" {
+				return httperror.ReturnWithHTTPStatus(
+					fmt.Errorf("missing authorization header"),
+					http.StatusUnauthorized,
+				)
+			}
 
-	// Support both "Bearer <token>" and plain "<token>" formats
-	var token string
-	if strings.HasPrefix(authHeader, "Bearer ") && len(authHeader) > 7 {
-		token = authHeader[7:]
-	} else {
-		token = authHeader
-	}
+			// Support both "Bearer <token>" and plain "<token>" formats
+			var token string
+			if strings.HasPrefix(authHeader, "Bearer ") && len(authHeader) > 7 {
+				token = authHeader[7:]
+			} else {
+				token = authHeader
+			}
 
-	// Use constant time comparison to prevent timing attacks
-	if subtle.ConstantTimeCompare([]byte(token), []byte(authToken)) != 1 {
-		return httperror.ReturnWithHTTPStatus(
-			fmt.Errorf("invalid authorization token"),
-			http.StatusUnauthorized,
-		)
-	}
+			// Use constant time comparison to prevent timing attacks
+			if subtle.ConstantTimeCompare([]byte(token), []byte(authToken)) != 1 {
+				return httperror.ReturnWithHTTPStatus(
+					fmt.Errorf("invalid authorization token"),
+					http.StatusUnauthorized,
+				)
+			}
 
-	return nil
+			return inner(c)
+		}
+	}
 }
 
 func getStaticFiles(useLocal bool) http.FileSystem {
@@ -135,69 +150,65 @@ func getStaticFiles(useLocal bool) http.FileSystem {
 	return http.FS(fsys)
 }
 
-func handlerWithLogger(inner HandlerFuncWithError, logUsage bool, useAuth bool, s *store.Storage) gin.HandlerFunc {
+func WrapHandler(inner HandlerFuncWithError) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("X-Version", Version)
-
-		// Check authentication if required
-		if useAuth {
-			if err := checkAuthHeader(c, settings.AuthToken); err != nil {
-				c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
-				return
-			}
-		}
-
-		// Read the request body once
-		var requestBody []byte
-		if c.Request.Body != nil {
-			requestBody, _ = io.ReadAll(c.Request.Body)
-			//fmt.Println("Request body:", string(requestBody))
-			// Reset the request body so it can be read again
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-		}
-
-		// Wrap the original ResponseWriter with our Gin-compatible wrapper
-		blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
-		c.Writer = blw
-
 		if err := inner(c); err != nil {
-			if logUsage {
-				log := types.UsageLog{
-					Status:    httperror.HTTPStatus(err),
-					Method:    c.Request.Method,
-					Error:     err.Error(),
-					Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
-					CreatedAt: time.Now(),
-					Response:  types.RawJSON("{}"),
-					Request:   types.RawJSON(requestBody),
-				}
-				if len(requestBody) == 0 {
-					log.Request = types.RawJSON("{}")
-				} else {
-					log.Request = types.RawJSON(requestBody)
-				}
-				fmt.Println("Logging error:", log)
-				s.LogRequest(log.Status, log.Method, log.Error, log.Endpoint, log.CreatedAt.Format(time.RFC3339), string(log.Response), string(log.Request))
-			}
 			c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
-		} else {
-			// Capture the response body and status code
-			if logUsage {
-				responseBody := blw.body.String()
-				statusCode := c.Writer.Status()
+		}
+	}
+}
 
-				log := types.UsageLog{
-					Status:    statusCode,
-					Method:    c.Request.Method,
-					Error:     "",
-					Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
-					CreatedAt: time.Now(),
-					Response:  types.RawJSON(responseBody),
-					Request:   types.RawJSON(requestBody),
-				}
-				fmt.Println("Logging success:", log)
-				s.LogRequest(log.Status, log.Method, log.Error, log.Endpoint, log.CreatedAt.Format(time.RFC3339), string(log.Response), string(log.Request))
+func LoggerMiddleware(s *store.Storage) func(HandlerFuncWithError) HandlerFuncWithError {
+	return func(inner HandlerFuncWithError) HandlerFuncWithError {
+		return func(c *gin.Context) error {
+			// Read the request body once
+			var requestBody []byte
+			if c.Request.Body != nil {
+				requestBody, _ = io.ReadAll(c.Request.Body)
+				// Reset the request body so it can be read again
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 			}
+
+			// Wrap the original ResponseWriter with our Gin-compatible wrapper
+			blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
+			c.Writer = blw
+
+			err := inner(c)
+
+			// Log the request/response
+			var status int
+			var errMsg string
+			if err != nil {
+				status = httperror.HTTPStatus(err)
+				errMsg = err.Error()
+			} else {
+				status = c.Writer.Status()
+				errMsg = ""
+			}
+
+			log := types.UsageLog{
+				Status:    status,
+				Method:    c.Request.Method,
+				Error:     errMsg,
+				Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
+				CreatedAt: time.Now(),
+				Response:  types.RawJSON(blw.body.String()),
+				Request:   types.RawJSON(requestBody),
+			}
+
+			if len(requestBody) == 0 {
+				log.Request = types.RawJSON("{}")
+			}
+
+			if err != nil {
+				fmt.Println("Logging error:", log)
+			} else {
+				fmt.Println("Logging success:", log)
+			}
+			s.LogRequest(log.Status, log.Method, log.Error, log.Endpoint, log.CreatedAt.Format(time.RFC3339), string(log.Response), string(log.Request))
+
+			return err
 		}
 	}
 }
