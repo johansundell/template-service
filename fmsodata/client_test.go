@@ -18,7 +18,7 @@ func TestGetRecords(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "Basic dXNlcjpwYXNz", r.Header.Get("Authorization"))
 		assert.Equal(t, "/fmi/odata/v4/testdb/Table1", r.URL.Path)
-		assert.Equal(t, "filter=field+eq+%27value%27", r.URL.RawQuery)
+		assert.Equal(t, "filter=field%20eq%20%27value%27", r.URL.RawQuery)
 
 		response := ODataResponse{
 			Value: []map[string]interface{}{

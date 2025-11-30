@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // GetRecords retrieves records from a table
@@ -16,7 +17,7 @@ func (c *Client) GetRecords(ctx context.Context, tableName string, query url.Val
 	if err != nil {
 		return nil, err
 	}
-	u.RawQuery = query.Encode()
+	u.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
 
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
