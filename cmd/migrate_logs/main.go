@@ -26,10 +26,10 @@ type LogEntry struct {
 func main() {
 	// 1. Initialize Client
 	config := fmsodata.ClientConfig{
-		Host:     "https://triton.squaremoon.se",
-		Database: "sudde_odata2",
-		Username: "agent",
-		Password: "agent",
+		Host:     "FMS_SERVER",
+		Database: "DATABASE",
+		Username: "USERNAME",
+		Password: "PASSWORD",
 		Timeout:  60 * time.Second,
 	}
 	client := fmsodata.NewClient(config)
@@ -68,7 +68,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
 	}
-	req.Header.Set("Authorization", "sudde")
+	req.Header.Set("Authorization", "AUTH")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
