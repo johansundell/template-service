@@ -69,32 +69,41 @@ func (c *Client) GetRecord(ctx context.Context, tableName string, id string) (ma
 }
 
 // CreateRecord creates a new record
-func (c *Client) CreateRecord(ctx context.Context, tableName string, data map[string]interface{}) (string, error) {
+func (c *Client) CreateRecord(ctx context.Context, tableName string, data map[string]interface{}) (map[string]interface{}, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	url := fmt.Sprintf("%s/%s", c.baseURL, tableName)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	resp, err := c.doRequest(ctx, req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", c.handleError(resp)
+		return nil, c.handleError(resp)
 	}
 
-	// Try to get ID from Location header or response body if available
-	// For now, we just return success if no error
-	// In a real scenario, we might want to parse the response to get the created ID
-	return "", nil
+	var record map[string]interface{}
+	// If the response has a body, try to decode it
+	if resp.ContentLength != 0 {
+		if err := json.NewDecoder(resp.Body).Decode(&record); err != nil {
+			// If decoding fails but status is OK, we might just return nil or the error
+			// For now, let's assume if we can't decode, it's an issue if we expect a record back
+			// However, sometimes POST might return 204 No Content or empty body?
+			// OData usually returns the created entity.
+			return nil, err
+		}
+	}
+
+	return record, nil
 }
 
 // UpdateRecord updates an existing record
