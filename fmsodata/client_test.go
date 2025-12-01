@@ -168,3 +168,22 @@ func TestDownloadContainer(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("test data"), data)
 }
+
+func TestPing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "GET", r.Method)
+		assert.Equal(t, "/fmi/odata/v4/testdb", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(ClientConfig{
+		Host:     server.URL,
+		Database: "testdb",
+		Username: "user",
+		Password: "pass",
+	})
+
+	err := client.Ping(context.Background())
+	assert.NoError(t, err)
+}
