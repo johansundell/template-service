@@ -80,7 +80,7 @@ data := map[string]interface{}{
     "Age":  30,
 }
 
-id, err := client.CreateRecord(context.Background(), "TableName", data)
+record, err := client.CreateRecord(context.Background(), "TableName", data)
 ```
 
 #### Update Record
