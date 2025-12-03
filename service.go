@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/store"
 	"github.com/kardianos/service"
@@ -33,23 +35,31 @@ func (p *program) Start(s service.Service) error {
 func (p *program) run() error {
 	logger.Infof("I'm running %v, with version %v.", service.Platform(), Version)
 
-	/*cfg := mysql.Config{
-		User:                 settings.MySqlSettings.Username,
-		Passwd:               settings.MySqlSettings.Password,
-		Net:                  "tcp",
-		Addr:                 settings.MySqlSettings.Host + ":3306",
-		DBName:               settings.MySqlSettings.Database,
-		AllowNativePasswords: true,
-		ParseTime:            true,
-	}
-	mydb, err := store.NewMySQLStorage(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}*/
+	var mydb *sql.DB
+	var err error
 
-	mydb, err := store.NewSqliteDatabase("test.db")
-	if err != nil {
-		log.Fatal(err)
+	if settings.UseMySQL {
+		cfg := mysql.Config{
+			User:                 settings.MySqlSettings.Username,
+			Passwd:               settings.MySqlSettings.Password,
+			Net:                  "tcp",
+			Addr:                 settings.MySqlSettings.Host + ":3306",
+			DBName:               settings.MySqlSettings.Database,
+			AllowNativePasswords: true,
+			ParseTime:            true,
+		}
+		mydb, err = store.NewMySQLStorage(cfg)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else if settings.UseSqlite {
+		mydb, err = store.NewSqliteDatabase("test.db")
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := mydb.Ping(); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if err := mydb.Ping(); err != nil {
 		log.Fatal(err)

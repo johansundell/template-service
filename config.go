@@ -33,7 +33,7 @@ func init() {
 		settings.Timeout = 15
 	}
 
-	settings.UseMysql, _ = strconv.ParseBool(os.Getenv("USE_MYSQL"))
+	settings.UseMySQL, _ = strconv.ParseBool(os.Getenv("USE_MYSQL"))
 	settings.UseSqlite, _ = strconv.ParseBool(os.Getenv("USE_SQLITE"))
 	settings.AuthToken = os.Getenv("AUTH_TOKEN")
 

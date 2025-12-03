@@ -5,7 +5,7 @@ type AppSettings struct {
 	Port          string `json:"port"`
 	UseFileSystem bool   `json:"useFileSystem"`
 	Timeout       int    `json:"timeout"`
-	UseMysql      bool   `json:"useMysql"`
+	UseMySQL      bool   `json:"useMysql"`
 	UseSqlite     bool   `json:"useSqlite"`
 	AuthToken     string `json:"authToken"`
 	MySqlSettings struct {
