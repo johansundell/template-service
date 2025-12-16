@@ -78,12 +78,10 @@ func (p *program) run() error {
 		log.Println(srv.ListenAndServe())
 	}()
 
-	for range p.exit {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		srv.Shutdown(ctx)
-		return nil
-	}
+	<-p.exit
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
 	return nil
 }
 
