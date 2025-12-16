@@ -26,23 +26,23 @@ func NewHandler(s *store.Storage, ufs bool, f fs.FS, name, version string) *Hand
 }
 
 func (h *Handler) getTemplate(withBase bool, tmplFile ...string) (*template.Template, error) {
+	files := make([]string, len(tmplFile))
 	for k, t := range tmplFile {
 		if h.useFileSystem {
-			t = "./tmpl/" + t
+			files[k] = "./tmpl/" + t
 		} else {
-			t = "tmpl/" + t
+			files[k] = "tmpl/" + t
 		}
-		tmplFile[k] = t
 	}
 	if h.useFileSystem {
 		if withBase {
-			tmplFile = append(tmplFile, "./tmpl/base.html")
+			files = append(files, "./tmpl/base.html")
 		}
-		//fmt.Println(tmplFile)
-		return template.ParseFiles(tmplFile...)
+		//fmt.Println(files)
+		return template.ParseFiles(files...)
 	}
 	if withBase {
-		tmplFile = append(tmplFile, "tmpl/base.html")
+		files = append(files, "tmpl/base.html")
 	}
-	return template.ParseFS(h.tpls, tmplFile...)
+	return template.ParseFS(h.tpls, files...)
 }
