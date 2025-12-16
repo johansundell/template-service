@@ -34,7 +34,9 @@ func init() {
 	}
 
 	settings.UseMySQL, _ = strconv.ParseBool(os.Getenv("USE_MYSQL"))
-	settings.UseSqlite, _ = strconv.ParseBool(os.Getenv("USE_SQLITE"))
+	if !settings.UseMySQL {
+		settings.UseSqlite = true
+	}
 	settings.AuthToken = os.Getenv("AUTH_TOKEN")
 
 	settings.MySqlSettings.Username = os.Getenv("MYSQL_USERNAME")
