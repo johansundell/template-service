@@ -18,6 +18,7 @@ func NewStorage(db *sql.DB) *Storage {
 type Store interface {
 	Ping() error
 	GetLogs(from, to time.Time) ([]types.UsageLog, error)
+	LogRequest(status int, method, errStr, endpoint string, createdAt string, response, request string) error
 }
 
 func (s *Storage) Ping() error {
