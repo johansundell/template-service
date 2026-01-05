@@ -82,8 +82,8 @@ func getRoutes(handler *handlers.Handler) Routes {
 		},
 		Route{
 			Name:        "Pong",
-			Method:      "GET",
-			Pattern:     "/pong/:argument",
+			Method:      "POST",
+			Pattern:     "/pong",
 			HandlerFunc: handler.Pong,
 			UseLogger:   true,
 			UseAuth:     true,
