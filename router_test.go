@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"testing/fstest"
 
 	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/handlers"
@@ -29,13 +32,14 @@ func TestAuthCheck(t *testing.T) {
 	defer db.Close()
 
 	s := store.NewStorage(db)
-	h := handlers.NewHandler(s, false, nil, "test", "dev")
+	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
 
-	router := NewRouter(h, s)
+	router := NewRouter(h, s, settings)
 
 	t.Run("Missing Auth Header", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/pong/test", nil)
+		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
+		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
 		if w.Code != http.StatusUnauthorized {
@@ -45,7 +49,8 @@ func TestAuthCheck(t *testing.T) {
 
 	t.Run("Invalid Auth Header", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/pong/test", nil)
+		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "wrong-token")
 		router.ServeHTTP(w, req)
 
@@ -56,7 +61,8 @@ func TestAuthCheck(t *testing.T) {
 
 	t.Run("Valid Auth Header", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/pong/test", nil)
+		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "secret-token")
 		router.ServeHTTP(w, req)
 
@@ -67,7 +73,8 @@ func TestAuthCheck(t *testing.T) {
 
 	t.Run("Valid Bearer Auth Header", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/pong/test", nil)
+		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer secret-token")
 		router.ServeHTTP(w, req)
 

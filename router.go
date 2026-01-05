@@ -35,7 +35,7 @@ type Route struct {
 type Routes []Route
 
 // NewRouter creates a new web handler
-func NewRouter(handler *handlers.Handler, s *store.Storage) *gin.Engine {
+func NewRouter(handler *handlers.Handler, s *store.Storage, settings types.AppSettings) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode) // Set mode before creating the router
 
 	//router := gin.Default()

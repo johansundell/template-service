@@ -57,18 +57,19 @@ func (p *program) run() error {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := mydb.Ping(); err != nil {
-			log.Fatal(err)
-		}
 	}
 	if err := mydb.Ping(); err != nil {
 		log.Fatal(err)
 	}
 
+	if !settings.Debug && settings.AuthToken == "" {
+		log.Println("WARNING: AUTH_TOKEN is not set in non-debug mode. Security is disabled.")
+	}
+
 	store := store.NewStorage(mydb)
 	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, Version)
 
-	router := NewRouter(handler, store)
+	router := NewRouter(handler, store, settings)
 	srv := &http.Server{
 		Handler: http.TimeoutHandler(router, time.Duration(settings.Timeout)*time.Second, "Timeout"),
 		Addr:    settings.Port,
