@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	"os"
+
 	"github.com/johansundell/template-service/fmsodata"
+	"github.com/joho/godotenv"
 )
 
 type LogEntry struct {
@@ -25,11 +28,15 @@ type LogEntry struct {
 
 func main() {
 	// 1. Initialize Client
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using default/environment values")
+	}
+
 	config := fmsodata.ClientConfig{
-		Host:     "FMS_SERVER",
-		Database: "DATABASE",
-		Username: "USERNAME",
-		Password: "PASSWORD",
+		Host:     os.Getenv("FMS_HOST"),
+		Database: os.Getenv("FMS_DATABASE"),
+		Username: os.Getenv("FMS_USERNAME"),
+		Password: os.Getenv("FMS_PASSWORD"),
 		Timeout:  60 * time.Second,
 	}
 	client := fmsodata.NewClient(config)
@@ -64,11 +71,11 @@ func main() {
 
 	// 3. Fetch Logs
 	fmt.Println("Fetching logs...")
-	req, err := http.NewRequest("GET", "http://localhost:8081/logs/2023-01-01/2026-01-01", nil)
+	req, err := http.NewRequest("GET", "http://localhost:8081/logs/2023-01-01/2026-06-01", nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
 	}
-	req.Header.Set("Authorization", "AUTH")
+	req.Header.Set("Authorization", os.Getenv("AUTH_TOKEN"))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
