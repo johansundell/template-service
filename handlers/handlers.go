@@ -8,14 +8,14 @@ import (
 )
 
 type Handler struct {
-	store            *store.Storage
+	store            store.Store
 	useFileSystem    bool
 	tpls             fs.FS
 	nameOfService    string
 	versionOfService string
 }
 
-func NewHandler(s *store.Storage, ufs bool, f fs.FS, name, version string) *Handler {
+func NewHandler(s store.Store, ufs bool, f fs.FS, name, version string) *Handler {
 	return &Handler{
 		store:            s,
 		useFileSystem:    ufs,

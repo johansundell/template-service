@@ -35,7 +35,7 @@ type Route struct {
 type Routes []Route
 
 // NewRouter creates a new web handler
-func NewRouter(handler *handlers.Handler, s *store.Storage, settings types.AppSettings) *gin.Engine {
+func NewRouter(handler *handlers.Handler, s store.Store, settings types.AppSettings) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode) // Set mode before creating the router
 
 	//router := gin.Default()
@@ -159,7 +159,7 @@ func WrapHandler(inner HandlerFuncWithError) gin.HandlerFunc {
 	}
 }
 
-func LoggerMiddleware(s *store.Storage) func(HandlerFuncWithError) HandlerFuncWithError {
+func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithError {
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 			// Read the request body once
