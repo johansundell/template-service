@@ -3,39 +3,42 @@ FROM golang:1.27.1-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache gcc musl-dev
-
-# Copy go mod and sum files
+# Copy go mod and sum files for layer caching
 COPY go.mod go.sum ./
-
-# Download dependencies
 RUN go mod download
 
 # Copy source code
 COPY . .
 
-# Build the application
-# CGO_ENABLED=1 is required for go-sqlite3
-RUN CGO_ENABLED=1 GOOS=linux go build -o template-service .
+# Pure Go build (no CGO needed for ncruces/go-sqlite3)
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X 'main.Version=${VERSION}'" \
+    -o template-service .
 
 # Run stage
-FROM alpine:latest
+FROM alpine:3.21
 
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates
+# Install runtime dependencies, create non-root user, and prepare app directory
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S appgroup \
+    && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /app
 
 # Copy binary from builder
-COPY --from=builder /app/template-service .
+COPY --from=builder --chown=appuser:appgroup /app/template-service .
 
 # Copy assets and templates
-COPY --from=builder /app/assets ./assets
-COPY --from=builder /app/tmpl ./tmpl
+COPY --from=builder --chown=appuser:appgroup /app/assets ./assets
+COPY --from=builder --chown=appuser:appgroup /app/tmpl ./tmpl
 
-# Expose port
+USER appuser
+
 EXPOSE 8080
 
-# Run the application
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/ || exit 1
+
 CMD ["./template-service"]
