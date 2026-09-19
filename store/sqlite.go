@@ -6,7 +6,7 @@ import (
 	//_ "github.com/mattn/go-sqlite3"
 	//_ "modernc.org/sqlite"
 	_ "github.com/ncruces/go-sqlite3/driver"
-	_ "github.com/ncruces/go-sqlite3/embed"
+	//_ "github.com/ncruces/go-sqlite3/embed"
 )
 
 func NewSqliteDatabase(file string) (*sql.DB, error) {

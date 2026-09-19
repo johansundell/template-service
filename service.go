@@ -43,7 +43,7 @@ func (p *program) run() error {
 			User:                 settings.MySqlSettings.Username,
 			Passwd:               settings.MySqlSettings.Password,
 			Net:                  "tcp",
-			Addr:                 settings.MySqlSettings.Host + ":3306",
+			Addr:                 settings.MySqlSettings.Host + ":" + settings.MySqlSettings.Port,
 			DBName:               settings.MySqlSettings.Database,
 			AllowNativePasswords: true,
 			ParseTime:            true,
