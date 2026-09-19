@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -67,6 +66,6 @@ func loadSettings(filenames ...string) {
 	}
 	settings.MySqlSettings.Database = os.Getenv("MYSQL_DATABASE")
 
-	fmt.Println("Settings loaded:", settings)
+	//fmt.Println("Settings loaded:", settings)
 
 }
