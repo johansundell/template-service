@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -113,10 +114,10 @@ func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWith
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 			if authToken == "" {
-				logger.Warning("WARNING: AUTH_TOKEN is not set in non-debug mode. Security is disabled.")
+				logger.Warning("WARNING: AUTH_TOKEN is not set.")
 				return httperror.ReturnWithHTTPStatus(
-					fmt.Errorf("setup error: Authorization token not configured"),
-					http.StatusUnauthorized,
+					errors.New("authentication is not configured"),
+					http.StatusInternalServerError,
 				)
 			}
 
