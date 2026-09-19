@@ -1,452 +1,252 @@
 ---
 name: go-service-template
-description: Build, scaffold, or extend Go web services using the template-service design pattern. Use when creating new Go microservices or adding endpoints to services that follow the kardianos/service daemon lifecycle, interface-decoupled storage (WASM SQLite & MySQL), Gin route wrapping with typed error handling, constant-time auth, and audit logging.
+description: Build, scaffold, or extend Go web services using the template-service design pattern. Use when creating new Go microservices or adding endpoints that follow kardianos/service lifecycle management, interface-decoupled SQLite/MySQL storage, Gin routes with typed errors, constant-time authentication, audit logging, and embedded or filesystem assets.
 ---
 
 # Go Service Template Pattern
 
-Production architecture pattern for Go microservices combining cross-platform OS service lifecycle management, interface-decoupled multi-backend persistence, Gin web routing with centralized error handling, and CGO-free containerization.
+Use the repository implementation as the source of truth. The important boundaries are:
 
-## Architectural Layers
-
-```
-                                    +------------------------------+
-                                    |     main.go (Daemon CLI)     |
-                                    |      kardianos/service       |
-                                    +--------------+---------------+
-                                                   |
-                                    +--------------v---------------+
-                                    |    service.go (Lifecycle)    |
-                                    |     Start / Run / Stop       |
-                                    +--------------+---------------+
-                                                   |
-                        +--------------------------+--------------------------+
-                        |                                                     |
-             +----------v----------+                               +----------v----------+
-             |    store.Store      |                               |      gin.Engine     |
-             |     (Interface)     |                               |      (router.go)    |
-             +----------+----------+                               +----------+----------+
-                        |                                                     |
-          +-------------+-------------+                                       |
-          |                           |                                       |
-+---------v---------+       +---------v---------+                             |
-| SQLite (Pure WASM)|       |       MySQL       |                             |
-| ncruces/go-sqlite3|       | go-sql-driver/mysql                             |
-+-------------------+       +-------------------+                             |
-                                                                              |
-                                     +----------------------------------------+
-                                     |
-                       +-------------v-------------+
-                       |    Middleware Pipeline    |
-                       | - Auth (Constant-time)    |
-                       | - Logger (Body buffering) |
-                       | - WrapHandler (Errors)    |
-                       +-------------+-------------+
-                                     |
-                       +-------------v-------------+
-                       |    handlers.Handler       |
-                       |  func(*gin.Context) error |
-                       +---------------------------+
+```text
+                    +-----------------------------+
+                    |    main.go (Daemon CLI)     |
+                    |      kardianos/service      |
+                    +--------------+--------------+
+                                   |
+                    +--------------v--------------+
+                    |   service.go (Lifecycle)    |
+                    |     Start / Run / Stop      |
+                    +--------------+--------------+
+                                   |
+                +------------------+------------------+
+                |                                     |
+     +----------v----------+           +--------------v--------------+
+     |     store.Store     |           |    gin.Engine (router.go)   |
+     |     (Interface)     |           +--------------+--------------+
+     +----------+----------+                          |
+                |                      +--------------v--------------+
+          +-----+-----+                |     Middleware Pipeline     |
+          |           |                |   Auth -> Logger -> Wrap    |
+     +----v----+ +----v----+           +--------------+--------------+
+     | SQLite  | |  MySQL  |                          |
+     | Pure Go | | Driver  |           +--------------v--------------+
+     +---------+ +---------+           |      handlers.Handler       |
+                                       |  func(*gin.Context) error   |
+                                       +-----------------------------+
 ```
 
----
+## Rules
 
-## Key Design Rules
+1. **Service lifecycle**: `Start` validates configuration and initializes storage, routing, and the listener before returning startup success. Serving runs asynchronously. `Stop` triggers graceful shutdown with a five-second deadline.
+2. **Storage boundary**: Handlers and middleware depend on `store.Store`, not concrete database types.
+3. **SQLite**: Use `github.com/ncruces/go-sqlite3` to keep builds CGO-free.
+4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
+5. **Routes**: Declare routes as `Route` values in `getRoutes(handler)`; `NewRouter` applies middleware and registers them.
+6. **Authentication**: Protected routes fail closed. An empty `AUTH_TOKEN` must cause startup validation to fail when any route has `UseAuth: true`. Compare tokens with `subtle.ConstantTimeCompare`.
+7. **Assets**: Embedded assets are the default. Filesystem mode loads assets and templates from paths relative to the executable directory.
+8. **Ownership**: Close database handles on constructor failure and service shutdown. Do not use `log.Fatal` in reusable service or library code.
 
-1. **Service Runner**: All services implement `service.Interface` (`Start`, `Stop`). The HTTP server runs asynchronously in a goroutine while `Start` returns immediately. `Stop` triggers graceful shutdown via `srv.Shutdown(ctx)` with a 5-second deadline.
-2. **Storage Decoupling**: Business logic, handlers, and middlewares **must only** accept the `store.Store` interface, never concrete driver structs (`*store.Storage`).
-3. **Pure Go SQLite**: Use `github.com/ncruces/go-sqlite3` (WASM-based) rather than `mattn/go-sqlite3` to avoid CGO compiler toolchain dependencies.
-4. **Error-Returning Handlers**: HTTP handlers return `error` (`HandlerFuncWithError func(*gin.Context) error`). Handlers wrap domain errors with status codes using `httperror.ReturnWithHTTPStatus(err, code)`.
-5. **Route Registration**: Routes are declared as declarative data structs (`Route{Name, Method, Pattern, HandlerFunc, UseLogger, UseAuth}`).
-6. **Constant-Time Auth**: Token authentication always uses `crypto/subtle.ConstantTimeCompare` to eliminate timing attack vectors.
-7. **Asset Duality**: Embedded assets (`embed.FS`) are the default for single-binary portability, with a config toggle (`USE_FILE_SYSTEM`) to load from disk during local frontend iteration.
+## Storage
 
----
-
-## Core Components
-
-### 1. Storage Interface & Pluggable Backends
-
-Define the storage contract in `store/storage.go`:
+Keep the storage contract small and interface-based:
 
 ```go
-package store
-
-import (
-	"database/sql"
-	"time"
-	"myproject/types"
-)
-
 type Store interface {
-	Ping() error
-	GetLogs(from, to time.Time) ([]types.UsageLog, error)
-	LogRequest(status int, method, errStr, endpoint, createdAt, response, request string) error
-}
-
-type Storage struct {
-	db *sql.DB
-}
-
-func NewStorage(db *sql.DB) *Storage {
-	return &Storage{db: db}
-}
-
-func (s *Storage) Ping() error {
-	return s.db.Ping()
+    Ping() error
+    GetLogs(from, to time.Time) ([]types.UsageLog, error)
+    LogRequest(status int, method, errStr, endpoint, createdAt, response, request string) error
 }
 ```
 
-#### Pure Go SQLite Driver (`store/sqlite.go`)
+Constructors should close an opened handle if schema creation fails:
+
 ```go
-package store
-
-import (
-	"database/sql"
-	_ "github.com/ncruces/go-sqlite3/driver"
-)
-
 func NewSqliteDatabase(file string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "file:"+file)
-	if err != nil {
-		return nil, err
-	}
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS request_logs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		status INTEGER,
-		method TEXT,
-		error TEXT,
-		endpoint TEXT,
-		created_at DATETIME,
-		response TEXT,
-		request TEXT
-	)`)
-	return db, err
+    db, err := sql.Open("sqlite3", "file:"+file)
+    if err != nil {
+        return nil, err
+    }
+    if _, err = db.Exec(createRequestLogsTable); err != nil {
+        _ = db.Close()
+        return nil, err
+    }
+    return db, nil
 }
 ```
 
----
+The service owns a successfully returned `*sql.DB` and should `defer db.Close()` immediately after construction, before pinging or building the router.
 
-### 2. Typed HTTP Error Handling (`httperror/httpError.go`)
+## Typed HTTP Errors
 
-Allows handlers to return idiomatic Go errors paired with HTTP status codes:
+`statusError` implements `Unwrap`, so status extraction must use `errors.As`. A direct type assertion loses the status after idiomatic `%w` wrapping:
 
 ```go
-package httperror
-
-import (
-	"fmt"
-	"net/http"
-)
-
-type statusError struct {
-	error
-	status int
-}
-
-func (e statusError) Unwrap() error { return e.error }
-func (e statusError) Error() string  { return fmt.Sprintf("status %d: %v", e.status, e.error) }
-
-func ReturnWithHTTPStatus(err error, status int) error {
-	return statusError{error: err, status: status}
-}
-
 func HTTPStatus(err error) int {
-	if se, ok := err.(statusError); ok {
-		return se.status
-	}
-	return http.StatusInternalServerError
+    var statusErr statusError
+    if errors.As(err, &statusErr) {
+        return statusErr.status
+    }
+    return http.StatusInternalServerError
 }
 
 func StatusText(err error) string {
-	if se, ok := err.(statusError); ok {
-		return http.StatusText(se.status)
-	}
-	return http.StatusText(http.StatusInternalServerError)
+    var statusErr statusError
+    if errors.As(err, &statusErr) {
+        return http.StatusText(statusErr.status)
+    }
+    return http.StatusText(http.StatusInternalServerError)
 }
 ```
 
----
-
-### 3. Gin Route Pipeline & Declarative Routing (`router.go`)
+Test both direct and wrapped errors:
 
 ```go
-package main
+baseErr := errors.New("user not found")
+err := fmt.Errorf("load user: %w", ReturnWithHTTPStatus(baseErr, http.StatusNotFound))
+```
 
-import (
-	"bytes"
-	"crypto/subtle"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"time"
+## Routes and Middleware
 
-	"github.com/gin-gonic/gin"
-	"myproject/handlers"
-	"myproject/httperror"
-	"myproject/store"
-	"myproject/types"
-)
+The route collection is the extension point:
 
-type HandlerFuncWithError func(*gin.Context) error
-
-type Route struct {
-	Name        string
-	Method      string
-	Pattern     string
-	HandlerFunc HandlerFuncWithError
-	UseLogger   bool
-	UseAuth     bool
+```go
+func getRoutes(handler *handlers.Handler) Routes {
+    return Routes{
+        {
+            Name: "HealthCheck", Method: "GET", Pattern: "/",
+            HandlerFunc: handler.HealthCheck,
+        },
+        {
+            Name: "Example", Method: "GET", Pattern: "/example",
+            HandlerFunc: handler.Example,
+            UseAuth: true,
+            UseLogger: true,
+        },
+    }
 }
+```
 
-type Routes []Route
+`NewRouter` should obtain routes from `getRoutes(handler)`, validate that every `UseAuth` route has a token, apply authentication outside the logger, then register `WrapHandler`:
 
-func NewRouter(handler *handlers.Handler, s store.Store, settings types.AppSettings) *gin.Engine {
-	gin.SetMode(gin.ReleaseMode)
-	router := gin.New()
-	router.Use(gin.Recovery())
+```go
+for _, route := range getRoutes(handler) {
+    if route.UseAuth && settings.AuthToken == "" {
+        return nil, fmt.Errorf("AUTH_TOKEN must be set for route %q", route.Name)
+    }
 
-	routes := Routes{
-		{
-			Name:        "HealthCheck",
-			Method:      "GET",
-			Pattern:     "/",
-			HandlerFunc: handler.HealthCheck,
-		},
-		{
-			Name:        "Ping",
-			Method:      "GET",
-			Pattern:     "/ping/:argument",
-			HandlerFunc: handler.Ping,
-			UseLogger:   true,
-		},
-		{
-			Name:        "Pong",
-			Method:      "POST",
-			Pattern:     "/pong",
-			HandlerFunc: handler.Pong,
-			UseLogger:   true,
-			UseAuth:     true,
-		},
-	}
-
-	for _, route := range routes {
-		fn := route.HandlerFunc
-		if route.UseAuth {
-			fn = AuthMiddleware(settings.AuthToken)(fn)
-		}
-		if route.UseLogger {
-			fn = LoggerMiddleware(s)(fn)
-		}
-		router.Handle(route.Method, route.Pattern, WrapHandler(fn))
-	}
-
-	return router
+    fn := route.HandlerFunc
+    if route.UseLogger {
+        fn = LoggerMiddleware(s)(fn)
+    }
+    if route.UseAuth {
+        fn = AuthMiddleware(settings.AuthToken)(fn)
+    }
+    router.Handle(route.Method, route.Pattern, WrapHandler(fn))
 }
+```
 
+The wrapper converts returned errors into HTTP responses:
+
+```go
 func WrapHandler(inner HandlerFuncWithError) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("X-Version", Version)
-		if err := inner(c); err != nil {
-			c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
-		}
-	}
+    return func(c *gin.Context) {
+        c.Header("X-Version", Version)
+        if err := inner(c); err != nil {
+            c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
+        }
+    }
 }
 ```
 
----
+### Authentication
 
-### 4. Constant-Time Auth Middleware
+Middleware must never turn a protected route into a public route because configuration is missing. Startup validation is the primary guard; the middleware should also fail closed if called directly:
 
 ```go
-func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWithError {
-	return func(inner HandlerFuncWithError) HandlerFuncWithError {
-		return func(c *gin.Context) error {
-			if authToken == "" {
-				return inner(c)
-			}
-			authHeader := c.GetHeader("Authorization")
-			if authHeader == "" {
-				return httperror.ReturnWithHTTPStatus(fmt.Errorf("missing authorization header"), http.StatusUnauthorized)
-			}
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			if subtle.ConstantTimeCompare([]byte(token), []byte(authToken)) != 1 {
-				return httperror.ReturnWithHTTPStatus(fmt.Errorf("invalid authorization token"), http.StatusUnauthorized)
-			}
-			return inner(c)
-		}
-	}
+if authToken == "" {
+    return httperror.ReturnWithHTTPStatus(
+        errors.New("authentication is not configured"),
+        http.StatusInternalServerError,
+    )
 }
 ```
 
----
+Accept the configured authorization format consistently, reject missing or invalid credentials with 401, and use `subtle.ConstantTimeCompare` for the final comparison.
 
-### 5. Service Daemon Lifecycle (`service.go` & `main.go`)
+### LoggerMiddleware
 
-In `main.go`:
+The logger middleware must restore the request body after reading it so JSON binding still works, and wrap Gin's writer to capture response bytes:
+
 ```go
-package main
-
-import (
-	"flag"
-	"log"
-	"github.com/kardianos/service"
-)
-
-const nameOfService = "my-service"
-var Version = "dev"
-
-func main() {
-	svcFlag := flag.String("service", "", "Control the system service: install, start, stop, uninstall")
-	flag.Parse()
-
-	svcConfig := &service.Config{
-		Name:        nameOfService,
-		DisplayName: nameOfService,
-		Description: "High-performance microservice daemon",
-	}
-
-	prg := &program{}
-	s, err := service.New(prg, svcConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if len(*svcFlag) != 0 {
-		if err := service.Control(s, *svcFlag); err != nil {
-			log.Fatalf("Control error: %v", err)
-		}
-		return
-	}
-
-	if err := s.Run(); err != nil {
-		log.Fatal(err)
-	}
+requestBody, err := io.ReadAll(c.Request.Body)
+if err != nil {
+    return err
 }
+c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
+
+writer := &bodyLogWriter{
+    ResponseWriter: c.Writer,
+    body:            bytes.NewBuffer(nil),
+}
+c.Writer = writer
+
+handlerErr := inner(c)
+// Persist requestBody, writer.body, status, endpoint, and handlerErr.
+return handlerErr
 ```
 
-In `service.go`:
+Apply auth outside the logger when unauthorized request bodies should not be persisted. Persistence failures should be logged without replacing the handler's response error.
+
+## Service Lifecycle
+
+The service worker must report initialization failures to `Start` instead of silently logging them:
+
 ```go
-package main
-
-import (
-	"context"
-	"database/sql"
-	"log"
-	"net/http"
-	"time"
-
-	"github.com/kardianos/service"
-	"myproject/handlers"
-	"myproject/store"
-)
-
-type program struct {
-	exit chan struct{}
-}
-
 func (p *program) Start(s service.Service) error {
-	p.exit = make(chan struct{})
-	go p.run()
-	return nil
+    loadSettings()
+    if err := settings.Validate(); err != nil {
+        return err
+    }
+
+    p.exit = make(chan struct{})
+    startup := make(chan error, 1)
+    go p.run(startup)
+    return <-startup
 }
 
-func (p *program) run() error {
-	// 1. Initialize DB Store
-	var db *sql.DB
-	var err error
-	if settings.UseMySQL {
-		// connect mysql
-	} else {
-		db, err = store.NewSqliteDatabase("data.db")
-	}
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := db.Ping(); err != nil {
-		log.Fatal(err)
-	}
+func (p *program) run(startup chan<- error) error {
+    db, err := openConfiguredDatabase(settings) // repository SQLite/MySQL constructors
+    if err != nil {
+        startup <- err
+        return err
+    }
+    defer db.Close()
 
-	storage := store.NewStorage(db)
-	handler := handlers.NewHandler(storage, settings.UseFileSystem, tpls, nameOfService, Version)
-	router := NewRouter(handler, storage, settings)
+    if err := db.Ping(); err != nil {
+        startup <- err
+        return err
+    }
 
-	srv := &http.Server{
-		Addr:    settings.Port,
-		Handler: http.TimeoutHandler(router, time.Duration(settings.Timeout)*time.Second, "Timeout"),
-	}
-
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server listen error: %v", err)
-		}
-	}()
-
-	<-p.exit
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return srv.Shutdown(ctx)
-}
-
-func (p *program) Stop(s service.Service) error {
-	close(p.exit)
-	return nil
+    // Build handler/router, bind the listener, then send startup <- nil.
+    // Serve asynchronously, wait for p.exit, and call srv.Shutdown(ctx).
+    return nil
 }
 ```
 
----
+`openConfiguredDatabase` is a descriptive placeholder, not a repository API. The real implementation must propagate database, router, and listener errors, close resources on every exit path, and avoid `log.Fatal` in the worker.
 
-## Workflow: Adding an Endpoint
+## Adding an Endpoint
 
-Follow this procedure to add a new endpoint:
+1. Create or update a handler in `handlers/` with signature `func (h *Handler) Action(c *gin.Context) error`.
+2. Return `httperror.ReturnWithHTTPStatus` for expected HTTP failures.
+3. Add a `Route` entry to `getRoutes(handler)` and choose `UseAuth` and `UseLogger` explicitly.
+4. Add focused handler and route tests. Mock `store.Store` where possible.
+5. Run `go test ./...` and `go build ./...`.
 
-1. **Define Handler**:
-   Create or open a file in `handlers/`. Implement signature `func(h *Handler) <Action>(c *gin.Context) error`. Return `httperror.ReturnWithHTTPStatus(err, status)` on failure or `c.JSON(...)` / `nil` on success.
-2. **Register Route**:
-   In `router.go`, add a new `Route` entry into `getRoutes()` with required flags (`UseAuth: true`, `UseLogger: true`).
-3. **Add Tests**:
-   Write a table-driven test using `gin.CreateTestContext(httptest.NewRecorder())`. Mock the `store.Store` interface without opening file handles or network sockets.
-4. **Verify**:
-   Run `go test ./...` and verify routing and middleware execution.
+## Filesystem Assets and Templates
 
----
+When filesystem mode is enabled, package the `assets` and `tmpl` directories beside the compiled binary. Resolve paths from `utils.GetBinaryBasePath()` rather than the process working directory. Embedded mode uses `embed.FS` and remains portable as a single binary.
 
-## Production Dockerfile Standard
+## Docker Standard
 
-```dockerfile
-# Build stage (Zero CGO)
-FROM golang:1.24-alpine AS builder
-
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X 'main.Version=${VERSION}'" \
-    -o template-service .
-
-# Run stage
-FROM alpine:3.21
-
-WORKDIR /app
-
-RUN apk add --no-cache ca-certificates \
-    && addgroup -S appgroup \
-    && adduser -S appuser -G appgroup \
-    && chown -R appuser:appgroup /app
-
-COPY --from=builder --chown=appuser:appgroup /app/template-service .
-COPY --from=builder --chown=appuser:appgroup /app/assets ./assets
-COPY --from=builder --chown=appuser:appgroup /app/tmpl ./tmpl
-
-USER appuser
-EXPOSE 8080
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -qO- http://localhost:8080/ || exit 1
-
-CMD ["./template-service"]
-```
+Use a multi-stage CGO-free build. Copy the binary, `assets`, and `tmpl` into the same runtime directory, run as a non-root user, and expose the configured HTTP port. Keep the image health check pointed at the public health endpoint.
