@@ -6,11 +6,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/store"
+	"github.com/johansundell/template-service/utils"
 	"github.com/kardianos/service"
 )
 
@@ -85,7 +87,7 @@ func (p *program) run(startup chan<- error) error {
 			return err
 		}
 	} else if settings.UseSqlite {
-		mydb, err = newSqliteDatabase("test.db")
+		mydb, err = newSqliteDatabase(utils.GetBinaryBasePath() + string(os.PathSeparator) + "test.db")
 		if err != nil {
 			if logger != nil {
 				logger.Errorf("failed to initialize sqlite storage: %v", err)
