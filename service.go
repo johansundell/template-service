@@ -20,6 +20,7 @@ type program struct {
 }
 
 func (p *program) Start(s service.Service) error {
+	loadSettings()
 	if service.Interactive() {
 		logger.Info("Running in terminal.")
 	} else {
@@ -62,8 +63,8 @@ func (p *program) run() error {
 		log.Fatal(err)
 	}
 
-	if !settings.Debug && settings.AuthToken == "" {
-		log.Println("WARNING: AUTH_TOKEN is not set in non-debug mode. Security is disabled.")
+	if settings.AuthToken == "" {
+		logger.Warning("WARNING: AUTH_TOKEN is not set in non-debug mode. Security is disabled.")
 	}
 
 	store := store.NewStorage(mydb)
