@@ -46,5 +46,8 @@ func (s *Storage) GetLogs(from, to time.Time) ([]types.UsageLog, error) {
 		}
 		logs = append(logs, l)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return logs, nil
 }
