@@ -154,7 +154,13 @@ func (p *program) run(startup chan<- error) error {
 	<-p.exit
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		if logger != nil {
+			logger.Errorf("HTTP server shutdown failed: %v", err)
+		} else {
+			log.Printf("HTTP server shutdown failed: %v", err)
+		}
+	}
 	return nil
 }
 
