@@ -20,3 +20,4 @@
 .env
 test_mysql_positive.db-shm
 test_mysql_positive.db-wal
+test.db-wal
