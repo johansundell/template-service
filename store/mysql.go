@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -11,6 +12,11 @@ func NewMySQLStorage(cfg mysql.Config) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Connection pool tuning
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS request_logs (
 		id INT AUTO_INCREMENT PRIMARY KEY,
@@ -23,6 +29,7 @@ func NewMySQLStorage(cfg mysql.Config) (*sql.DB, error) {
 		request TEXT
 	)`)
 	if err != nil {
+		db.Close()
 		return nil, err
 	}
 

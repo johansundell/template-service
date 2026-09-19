@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -35,7 +36,7 @@ type Route struct {
 type Routes []Route
 
 // NewRouter creates a new web handler
-func NewRouter(handler *handlers.Handler, s store.Store, settings types.AppSettings) *gin.Engine {
+func NewRouter(handler *handlers.Handler, s store.Store, settings types.AppSettings) (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode) // Set mode before creating the router
 
 	//router := gin.Default()
@@ -62,9 +63,13 @@ func NewRouter(handler *handlers.Handler, s store.Store, settings types.AppSetti
 	}
 
 	// Static files
-	router.StaticFS("/assets", getStaticFiles(settings.UseFileSystem))
+	fsys, err := getStaticFiles(settings.UseFileSystem)
+	if err != nil {
+		return nil, err
+	}
+	router.StaticFS("/assets", fsys)
 
-	return router
+	return router, nil
 }
 
 func getRoutes(handler *handlers.Handler) Routes {
@@ -140,16 +145,16 @@ func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWith
 	}
 }
 
-func getStaticFiles(useLocal bool) http.FileSystem {
+func getStaticFiles(useLocal bool) (http.FileSystem, error) {
 	if useLocal {
-		return http.FS(os.DirFS("assets"))
+		return http.FS(os.DirFS("assets")), nil
 	}
 
 	fsys, err := fs.Sub(embededFiles, "assets")
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return http.FS(fsys)
+	return http.FS(fsys), nil
 }
 
 func WrapHandler(inner HandlerFuncWithError) gin.HandlerFunc {
@@ -167,8 +172,12 @@ func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithE
 			// Read the request body once
 			var requestBody []byte
 			if c.Request.Body != nil {
-				requestBody, _ = io.ReadAll(c.Request.Body)
+				var readErr error
+				requestBody, readErr = io.ReadAll(c.Request.Body)
 				c.Request.Body.Close()
+				if readErr != nil {
+					log.Printf("failed to read request body: %v", readErr)
+				}
 
 				// Reset the request body so it can be read again
 				c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
@@ -191,7 +200,7 @@ func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithE
 				errMsg = ""
 			}
 
-			log := types.UsageLog{
+			usageLog := types.UsageLog{
 				Status:    status,
 				Method:    c.Request.Method,
 				Error:     errMsg,
@@ -202,15 +211,15 @@ func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithE
 			}
 
 			if len(requestBody) == 0 {
-				log.Request = types.RawJSON("{}")
+				usageLog.Request = types.RawJSON("{}")
 			}
 
-			if err != nil {
-				fmt.Println("Logging error:", log)
+			// Persist request log; if persistence fails, record the error to std log
+			if persistErr := s.LogRequest(usageLog.Status, usageLog.Method, usageLog.Error, usageLog.Endpoint, usageLog.CreatedAt.Format(time.RFC3339), string(usageLog.Response), string(usageLog.Request)); persistErr != nil {
+				log.Printf("failed to persist request log: %v", persistErr)
 			} else {
-				fmt.Println("Logging success:", log)
+				log.Printf("request logged: %s %s %d", usageLog.Method, usageLog.Endpoint, usageLog.Status)
 			}
-			s.LogRequest(log.Status, log.Method, log.Error, log.Endpoint, log.CreatedAt.Format(time.RFC3339), string(log.Response), string(log.Request))
 
 			return err
 		}

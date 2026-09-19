@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -65,5 +66,7 @@ func loadSettings(filenames ...string) {
 		settings.MySqlSettings.Port = "3306"
 	}
 	settings.MySqlSettings.Database = os.Getenv("MYSQL_DATABASE")
+
+	fmt.Println("Settings loaded:", settings)
 
 }

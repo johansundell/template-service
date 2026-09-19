@@ -34,7 +34,10 @@ func TestAuthCheck(t *testing.T) {
 	s := store.NewStorage(db)
 	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
 
-	router := NewRouter(h, s, settings)
+	router, err := NewRouter(h, s, settings)
+	if err != nil {
+		t.Fatalf("NewRouter failed: %v", err)
+	}
 
 	t.Run("Missing Auth Header", func(t *testing.T) {
 		w := httptest.NewRecorder()

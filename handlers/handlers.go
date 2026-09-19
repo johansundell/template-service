@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"io/fs"
+	"path/filepath"
 	"text/template"
 
 	"github.com/johansundell/template-service/store"
+	"github.com/johansundell/template-service/utils"
 )
 
 type Handler struct {
@@ -26,19 +28,19 @@ func NewHandler(s store.Store, ufs bool, f fs.FS, name, version string) *Handler
 }
 
 func (h *Handler) getTemplate(withBase bool, tmplFile ...string) (*template.Template, error) {
+	basePath := utils.GetBinaryBasePath()
 	files := make([]string, len(tmplFile))
 	for k, t := range tmplFile {
 		if h.useFileSystem {
-			files[k] = "./tmpl/" + t
+			files[k] = filepath.Join(basePath, "tmpl", t)
 		} else {
 			files[k] = "tmpl/" + t
 		}
 	}
 	if h.useFileSystem {
 		if withBase {
-			files = append(files, "./tmpl/base.html")
+			files = append(files, filepath.Join(basePath, "tmpl", "base.html"))
 		}
-		//fmt.Println(files)
 		return template.ParseFiles(files...)
 	}
 	if withBase {
