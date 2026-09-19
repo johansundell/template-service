@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/johansundell/template-service/types"
@@ -12,9 +13,26 @@ import (
 var settings types.AppSettings
 
 func init() {
-	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using default/environment values")
+	loadSettings()
+}
+
+func loadSettings(filenames ...string) {
+	// Load or reload .env file (Overload overrides already set environment variables)
+	if len(filenames) > 0 {
+		if err := godotenv.Overload(filenames...); err != nil {
+			log.Println("No .env file found, using default/environment values")
+		}
+	} else {
+		if err := godotenv.Overload(); err != nil {
+			if exe, exeErr := os.Executable(); exeErr == nil {
+				envPath := filepath.Join(filepath.Dir(exe), ".env")
+				if err = godotenv.Overload(envPath); err != nil {
+					log.Println("No .env file found, using default/environment values")
+				}
+			} else {
+				log.Println("No .env file found, using default/environment values")
+			}
+		}
 	}
 
 	settings = types.AppSettings{}
@@ -48,7 +66,4 @@ func init() {
 	}
 	settings.MySqlSettings.Database = os.Getenv("MYSQL_DATABASE")
 
-	if settings.AuthToken == "" {
-		log.Println("WARNING: AUTH_TOKEN is not set, authentication will not be used")
-	}
 }
