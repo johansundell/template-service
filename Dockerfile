@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Pure Go build (no CGO needed for ncruces/go-sqlite3)
-ARG VERSION=dev
+ARG VERSION=0.0.6
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X 'main.Version=${VERSION}'" \
     -o template-service .
