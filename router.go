@@ -86,6 +86,7 @@ func getRoutes(handler *handlers.Handler) Routes {
 			Pattern:     "/ping/:argument",
 			HandlerFunc: handler.Ping,
 			UseLogger:   true,
+			UseAuth:     false,
 		},
 		Route{
 			Name:        "Pong",
@@ -112,8 +113,11 @@ func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWith
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 			if authToken == "" {
-				// If no auth token is configured, skip authentication
-				return inner(c)
+				logger.Warning("WARNING: AUTH_TOKEN is not set in non-debug mode. Security is disabled.")
+				return httperror.ReturnWithHTTPStatus(
+					fmt.Errorf("setup error: Authorization token not configured"),
+					http.StatusUnauthorized,
+				)
 			}
 
 			authHeader := c.GetHeader("Authorization")
