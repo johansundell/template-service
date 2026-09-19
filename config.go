@@ -43,5 +43,12 @@ func init() {
 	settings.MySqlSettings.Password = os.Getenv("MYSQL_PASSWORD")
 	settings.MySqlSettings.Host = os.Getenv("MYSQL_HOST")
 	settings.MySqlSettings.Port = os.Getenv("MYSQL_PORT")
+	if settings.MySqlSettings.Port == "" {
+		settings.MySqlSettings.Port = "3306"
+	}
 	settings.MySqlSettings.Database = os.Getenv("MYSQL_DATABASE")
+
+	if settings.AuthToken == "" {
+		log.Println("WARNING: AUTH_TOKEN is not set, authentication will not be used")
+	}
 }

@@ -45,14 +45,16 @@ func NewRouter(handler *handlers.Handler, s store.Store, settings types.AppSetti
 	routes := getRoutes(handler)
 
 	for _, route := range routes {
-		// Apply Auth Middleware
-		if route.UseAuth {
-			route.HandlerFunc = AuthMiddleware(settings.AuthToken)(route.HandlerFunc)
-		}
-
-		// Apply Logger Middleware
+		// Apply Logger Middleware first (innermost), so it only runs after auth passes.
+		// Wrapping order is inside-out: the last wrapper applied is the first to execute.
 		if route.UseLogger {
 			route.HandlerFunc = LoggerMiddleware(s)(route.HandlerFunc)
+		}
+
+		// Apply Auth Middleware second (outermost), so it executes first and rejects
+		// unauthenticated requests before the logger reads or stores the body.
+		if route.UseAuth {
+			route.HandlerFunc = AuthMiddleware(settings.AuthToken)(route.HandlerFunc)
 		}
 
 		// Convert to Gin Handler and register
