@@ -109,7 +109,7 @@ err := fmt.Errorf("load user: %w", ReturnWithHTTPStatus(baseErr, http.StatusNotF
 
 ## Routes and Middleware
 
-The route collection in `router/router.go` is the extension point:
+The route collection in `router/routes.go` is the extension point:
 
 ```go
 func GetRoutes(handler *handlers.Handler) Routes {
@@ -243,7 +243,7 @@ func (p *program) run(startup chan<- error) error {
 
 1. Create or update a handler in `handlers/` with signature `func (h *Handler) Action(c *gin.Context) error`.
 2. Return `httperror.ReturnWithHTTPStatus` for expected HTTP failures.
-3. Add a `Route` entry to `getRoutes(handler)` and choose `UseAuth` and `UseLogger` explicitly.
+3. Add a `Route` entry to `router.GetRoutes(handler)` in `router/routes.go` and choose `UseAuth` and `UseLogger` explicitly.
 4. Add focused handler and route tests. Mock `store.Store` where possible.
 5. Run `go test ./...` and `go build ./...`.
 
