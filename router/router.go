@@ -1,4 +1,4 @@
-package main
+package router
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,9 +22,10 @@ import (
 	"github.com/johansundell/template-service/utils"
 )
 
+// HandlerFuncWithError defines a handler function that returns an error
 type HandlerFuncWithError func(*gin.Context) error
 
-// Route struct for the service
+// Route defines the configuration for a single HTTP endpoint
 type Route struct {
 	Name        string
 	Method      string
@@ -33,88 +35,70 @@ type Route struct {
 	UseAuth     bool
 }
 
-// Routes for the servcie web handlers
+// Routes is a collection of Route definitions
 type Routes []Route
 
-// NewRouter creates a new web handler
-func NewRouter(handler *handlers.Handler, s store.Store, settings types.AppSettings) (*gin.Engine, error) {
-	gin.SetMode(gin.ReleaseMode) // Set mode before creating the router
+// Config contains the dependencies and settings required to construct a router
+type Config struct {
+	Handler  *handlers.Handler
+	Store    store.Store
+	Settings types.AppSettings
+	Assets   fs.FS
+	Version  string
+	Routes   Routes // Optional: defaults to GetRoutes(Handler) when empty
+}
 
-	//router := gin.Default()
+// NewRouter creates a new web handler with middleware and registered routes
+func NewRouter(cfg Config) (*gin.Engine, error) {
+	gin.SetMode(gin.ReleaseMode)
+
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	routes := getRoutes(handler)
+	routes := cfg.Routes
+	if len(routes) == 0 && cfg.Handler != nil {
+		routes = GetRoutes(cfg.Handler)
+	}
 
 	for _, route := range routes {
+		if route.UseAuth && cfg.Settings.AuthToken == "" {
+			return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
+		}
+
+		fn := route.HandlerFunc
+
 		// Apply Logger Middleware first (innermost), so it only runs after auth passes.
 		// Wrapping order is inside-out: the last wrapper applied is the first to execute.
-		if route.UseLogger {
-			route.HandlerFunc = LoggerMiddleware(s)(route.HandlerFunc)
+		if route.UseLogger && cfg.Store != nil {
+			fn = LoggerMiddleware(cfg.Store)(fn)
 		}
 
 		// Apply Auth Middleware second (outermost), so it executes first and rejects
 		// unauthenticated requests before the logger reads or stores the body.
 		if route.UseAuth {
-			route.HandlerFunc = AuthMiddleware(settings.AuthToken)(route.HandlerFunc)
+			fn = AuthMiddleware(cfg.Settings.AuthToken)(fn)
 		}
 
-		// Convert to Gin Handler and register
-		router.Handle(route.Method, route.Pattern, WrapHandler(route.HandlerFunc))
+		router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
 	}
 
 	// Static files
-	fsys, err := getStaticFiles(settings.UseFileSystem)
-	if err != nil {
-		return nil, err
+	if cfg.Assets != nil || cfg.Settings.UseFileSystem {
+		fsys, err := getStaticFiles(cfg.Assets, cfg.Settings.UseFileSystem)
+		if err != nil {
+			return nil, err
+		}
+		router.StaticFS("/assets", fsys)
 	}
-	router.StaticFS("/assets", fsys)
 
 	return router, nil
 }
 
-func getRoutes(handler *handlers.Handler) Routes {
-	routes := Routes{
-		Route{
-			Name:        "HealthCheck",
-			Method:      "GET",
-			Pattern:     "/",
-			HandlerFunc: handler.HealthCheck,
-		},
-		Route{
-			Name:        "Ping",
-			Method:      "GET",
-			Pattern:     "/ping/:argument",
-			HandlerFunc: handler.Ping,
-			UseLogger:   true,
-			UseAuth:     false,
-		},
-		Route{
-			Name:        "Pong",
-			Method:      "POST",
-			Pattern:     "/pong",
-			HandlerFunc: handler.Pong,
-			UseLogger:   true,
-			UseAuth:     true,
-		},
-		Route{
-			Name:        "GetLogs",
-			Method:      "GET",
-			Pattern:     "/logs/:from/:to",
-			HandlerFunc: handler.GetLogsHandler,
-			UseAuth:     true,
-		},
-	}
-	return routes
-}
-
-// checkAuthHeader validates the Authorization header against the configured auth token
 // AuthMiddleware returns a middleware that validates the Authorization header
 func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWithError {
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 			if authToken == "" {
-				logger.Warning("WARNING: AUTH_TOKEN is not set.")
 				return httperror.ReturnWithHTTPStatus(
 					errors.New("authentication is not configured"),
 					http.StatusInternalServerError,
@@ -150,27 +134,36 @@ func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWith
 	}
 }
 
-func getStaticFiles(useLocal bool) (http.FileSystem, error) {
+func getStaticFiles(assets fs.FS, useLocal bool) (http.FileSystem, error) {
 	if useLocal {
-		return http.FS(os.DirFS("assets")), nil
+		assetDir := filepath.Join(utils.GetBinaryBasePath(), "assets")
+		return http.FS(os.DirFS(assetDir)), nil
 	}
 
-	fsys, err := fs.Sub(embededFiles, "assets")
+	if assets == nil {
+		return nil, errors.New("embedded assets filesystem is nil")
+	}
+
+	fsys, err := fs.Sub(assets, "assets")
 	if err != nil {
 		return nil, err
 	}
 	return http.FS(fsys), nil
 }
 
-func WrapHandler(inner HandlerFuncWithError) gin.HandlerFunc {
+// WrapHandler wraps a HandlerFuncWithError into a Gin HandlerFunc and injects X-Version
+func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("X-Version", Version)
+		if version != "" {
+			c.Header("X-Version", version)
+		}
 		if err := inner(c); err != nil {
 			c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
 		}
 	}
 }
 
+// LoggerMiddleware logs requests and responses using the provided Store
 func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithError {
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
@@ -231,7 +224,6 @@ func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithE
 	}
 }
 
-// Add this struct at the end of the file
 type bodyLogWriter struct {
 	gin.ResponseWriter
 	body *bytes.Buffer

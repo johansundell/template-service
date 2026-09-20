@@ -21,18 +21,20 @@ Use the repository implementation as the source of truth. The important boundari
                 +------------------+------------------+
                 |                                     |
      +----------v----------+           +--------------v--------------+
-     |     store.Store     |           |    gin.Engine (router.go)   |
-     |     (Interface)     |           +--------------+--------------+
-     +----------+----------+                          |
+     |     store.Store     |           |          gin.Engine         |
+     |     (Interface)     |           |      (router/router.go)     |
+     +----------+----------+           +--------------+--------------+
+                |                                     |
                 |                      +--------------v--------------+
-          +-----+-----+                |     Middleware Pipeline     |
-          |           |                |   Auth -> Logger -> Wrap    |
-     +----v----+ +----v----+           +--------------+--------------+
-     | SQLite  | |  MySQL  |                          |
-     | Pure Go | | Driver  |           +--------------v--------------+
-     +---------+ +---------+           |      handlers.Handler       |
-                                       |  func(*gin.Context) error   |
-                                       +-----------------------------+
+                |                      |     Middleware Pipeline     |
+                |                      |   Auth -> Logger -> Wrap    |
+                |                      +--------------+--------------+
+          +-----+-----+                               |
+          |           |                +--------------v--------------+
+     +----v----+ +----v----+           |      handlers.Handler       |
+     | SQLite  | |  MySQL  |           |  func(*gin.Context) error   |
+     | Pure Go | | Driver  |           +-----------------------------+
+     +---------+ +---------+
 ```
 
 ## Rules
@@ -41,7 +43,7 @@ Use the repository implementation as the source of truth. The important boundari
 2. **Storage boundary**: Handlers and middleware depend on `store.Store`, not concrete database types.
 3. **SQLite**: Use `github.com/ncruces/go-sqlite3` to keep builds CGO-free.
 4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
-5. **Routes**: Declare routes as `Route` values in `getRoutes(handler)`; `NewRouter` applies middleware and registers them.
+5. **Routes**: Declare routes as `Route` values in `router.GetRoutes(handler)`; `router.NewRouter(cfg)` applies middleware and registers them.
 6. **Authentication**: Protected routes fail closed. An empty `AUTH_TOKEN` must cause startup validation to fail when any route has `UseAuth: true`. Compare tokens with `subtle.ConstantTimeCompare`.
 7. **Assets**: Embedded assets are the default. Filesystem mode loads assets and templates from paths relative to the executable directory.
 8. **Ownership**: Close database handles on constructor failure and service shutdown. Do not use `log.Fatal` in reusable service or library code.
@@ -107,10 +109,10 @@ err := fmt.Errorf("load user: %w", ReturnWithHTTPStatus(baseErr, http.StatusNotF
 
 ## Routes and Middleware
 
-The route collection is the extension point:
+The route collection in `router/router.go` is the extension point:
 
 ```go
-func getRoutes(handler *handlers.Handler) Routes {
+func GetRoutes(handler *handlers.Handler) Routes {
     return Routes{
         {
             Name: "HealthCheck", Method: "GET", Pattern: "/",
@@ -126,31 +128,33 @@ func getRoutes(handler *handlers.Handler) Routes {
 }
 ```
 
-`NewRouter` should obtain routes from `getRoutes(handler)`, validate that every `UseAuth` route has a token, apply authentication outside the logger, then register `WrapHandler`:
+`router.NewRouter(cfg)` accepts `router.Config`, obtains routes, validates that every `UseAuth` route has a token (failing fast at startup), applies authentication outside the logger, then registers `WrapHandler`:
 
 ```go
-for _, route := range getRoutes(handler) {
-    if route.UseAuth && settings.AuthToken == "" {
-        return nil, fmt.Errorf("AUTH_TOKEN must be set for route %q", route.Name)
+for _, route := range routes {
+    if route.UseAuth && cfg.Settings.AuthToken == "" {
+        return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
     }
 
     fn := route.HandlerFunc
-    if route.UseLogger {
-        fn = LoggerMiddleware(s)(fn)
+    if route.UseLogger && cfg.Store != nil {
+        fn = LoggerMiddleware(cfg.Store)(fn)
     }
     if route.UseAuth {
-        fn = AuthMiddleware(settings.AuthToken)(fn)
+        fn = AuthMiddleware(cfg.Settings.AuthToken)(fn)
     }
-    router.Handle(route.Method, route.Pattern, WrapHandler(fn))
+    router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
 }
 ```
 
-The wrapper converts returned errors into HTTP responses:
+The wrapper converts returned errors into HTTP responses and sets the `X-Version` header:
 
 ```go
-func WrapHandler(inner HandlerFuncWithError) gin.HandlerFunc {
+func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
     return func(c *gin.Context) {
-        c.Header("X-Version", Version)
+        if version != "" {
+            c.Header("X-Version", version)
+        }
         if err := inner(c); err != nil {
             c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
         }
