@@ -76,7 +76,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		// Apply Auth Middleware second (outermost), so it executes first and rejects
 		// unauthenticated requests before the logger reads or stores the body.
 		if route.UseAuth {
-			fn = AuthMiddleware(cfg.Settings.AuthToken)(fn)
+			fn = AuthMiddleware(cfg.Store, cfg.Settings.AuthToken)(fn)
 		}
 
 		router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
@@ -95,9 +95,10 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 }
 
 // AuthMiddleware returns a middleware that validates the Authorization header
-func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWithError {
+func AuthMiddleware(s store.Store, authToken string) func(HandlerFuncWithError) HandlerFuncWithError {
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
+
 			if authToken == "" {
 				return httperror.ReturnWithHTTPStatus(
 					errors.New("authentication is not configured"),
@@ -128,7 +129,6 @@ func AuthMiddleware(authToken string) func(HandlerFuncWithError) HandlerFuncWith
 					http.StatusUnauthorized,
 				)
 			}
-
 			return inner(c)
 		}
 	}

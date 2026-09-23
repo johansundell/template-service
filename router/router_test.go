@@ -116,7 +116,7 @@ func TestAuthMiddleware_FailClosed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Standalone AuthMiddleware with empty token must return 500 and not panic
-	mw := router.AuthMiddleware("")
+	mw := router.AuthMiddleware(nil, "")
 	handler := mw(func(c *gin.Context) error {
 		return nil
 	})

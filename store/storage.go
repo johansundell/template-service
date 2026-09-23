@@ -19,10 +19,15 @@ type Store interface {
 	Ping() error
 	GetLogs(from, to time.Time) ([]types.UsageLog, error)
 	LogRequest(status int, method, errStr, endpoint string, createdAt string, response, request string) error
+	Login(username, password string) (bool, error)
 }
 
 func (s *Storage) Ping() error {
 	return s.db.Ping()
+}
+
+func (s *Storage) Login(username, password string) (bool, error) {
+	return true, nil
 }
 
 func (s *Storage) LogRequest(status int, method, errStr, endpoint string, createdAt string, response, request string) error {
