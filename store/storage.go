@@ -27,7 +27,7 @@ func (s *Storage) Ping() error {
 }
 
 func (s *Storage) Login(username, password string) (bool, error) {
-	return true, nil
+	return false, nil
 }
 
 func (s *Storage) LogRequest(status int, method, errStr, endpoint string, createdAt string, response, request string) error {
