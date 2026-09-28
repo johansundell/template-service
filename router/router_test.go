@@ -196,6 +196,7 @@ func TestCustomRoutes(t *testing.T) {
 
 	r, err := router.NewRouter(router.Config{
 		Routes:  customRoutes,
+		Assets:  fstest.MapFS{},
 		Version: "v1.0.0",
 	})
 	if err != nil {
@@ -276,5 +277,58 @@ func TestNewRouter_LoggedRouteRequiresStore(t *testing.T) {
 	expected := `store must be configured for logged route "LoggedRoute"`
 	if err.Error() != expected {
 		t.Errorf("Expected error %q, got %q", expected, err.Error())
+	}
+}
+
+func TestNewRouter_EmbeddedModeNilAssetsReturnsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	customRoutes := router.Routes{
+		router.Route{
+			Name:        "TestRoute",
+			Method:      "GET",
+			Pattern:     "/test",
+			HandlerFunc: func(c *gin.Context) error { return nil },
+		},
+	}
+
+	_, err := router.NewRouter(router.Config{
+		Routes:   customRoutes,
+		Assets:   nil,
+		Settings: types.AppSettings{UseFileSystem: false},
+		Version:  "v1.0.0",
+	})
+	if err == nil {
+		t.Fatalf("Expected NewRouter to fail when Assets is nil in embedded mode, got nil")
+	}
+	expected := "embedded assets filesystem is nil"
+	if err.Error() != expected {
+		t.Errorf("Expected error %q, got %q", expected, err.Error())
+	}
+}
+
+func TestNewRouter_FileSystemModeNilAssetsSucceeds(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	customRoutes := router.Routes{
+		router.Route{
+			Name:        "TestRoute",
+			Method:      "GET",
+			Pattern:     "/test",
+			HandlerFunc: func(c *gin.Context) error { return nil },
+		},
+	}
+
+	r, err := router.NewRouter(router.Config{
+		Routes:   customRoutes,
+		Assets:   nil,
+		Settings: types.AppSettings{UseFileSystem: true},
+		Version:  "v1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("Expected NewRouter to succeed in filesystem mode without embedded assets, got: %v", err)
+	}
+	if r == nil {
+		t.Fatal("Expected non-nil router")
 	}
 }
