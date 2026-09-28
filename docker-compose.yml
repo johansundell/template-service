@@ -4,7 +4,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./test.db:/app/test.db
+      - ./template-service.db:/app/template-service.db
     environment:
       - PORT=:8080
       - USE_FILE_SYSTEM=false
