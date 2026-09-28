@@ -56,7 +56,10 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 	router.Use(gin.Recovery())
 
 	routes := cfg.Routes
-	if len(routes) == 0 && cfg.Handler != nil {
+	if len(routes) == 0 {
+		if cfg.Handler == nil {
+			return nil, errors.New("routes or handler must be provided")
+		}
 		routes = GetRoutes(cfg.Handler)
 	}
 
