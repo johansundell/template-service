@@ -89,13 +89,11 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 	}
 
 	// Static files
-	if cfg.Assets != nil || cfg.Settings.UseFileSystem {
-		fsys, err := getStaticFiles(cfg.Assets, cfg.Settings.UseFileSystem)
-		if err != nil {
-			return nil, err
-		}
-		router.StaticFS("/assets", fsys)
+	fsys, err := getStaticFiles(cfg.Assets, cfg.Settings.UseFileSystem)
+	if err != nil {
+		return nil, err
 	}
+	router.StaticFS("/assets", fsys)
 
 	return router, nil
 }
