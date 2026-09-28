@@ -17,7 +17,7 @@ func TestPing(t *testing.T) {
 	t.Run("Valid argument", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		
+
 		// Mock param
 		c.Params = gin.Params{{Key: "argument", Value: "pong"}}
 
@@ -29,7 +29,7 @@ func TestPing(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
 		}
-		
+
 		var response map[string]string
 		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 			t.Errorf("Failed to unmarshal response: %v", err)
@@ -42,7 +42,7 @@ func TestPing(t *testing.T) {
 	t.Run("Not found argument", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		
+
 		// Mock param
 		c.Params = gin.Params{{Key: "argument", Value: "notfound"}}
 
