@@ -91,6 +91,18 @@ func TestAuthCheck(t *testing.T) {
 			t.Errorf("Expected status 200, got %d", w.Code)
 		}
 	})
+
+	t.Run("Valid Auth With Invalid JSON", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{invalid`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "secret-token")
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", w.Code)
+		}
+	})
 }
 
 func TestStartupAuthValidation(t *testing.T) {
