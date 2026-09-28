@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/johansundell/template-service/types"
 	"github.com/joho/godotenv"
@@ -60,7 +61,7 @@ func loadSettings(filenames ...string) {
 	settings.MySqlSettings.Username = os.Getenv("MYSQL_USERNAME")
 	settings.MySqlSettings.Password = os.Getenv("MYSQL_PASSWORD")
 	settings.MySqlSettings.Host = os.Getenv("MYSQL_HOST")
-	settings.MySqlSettings.Port = os.Getenv("MYSQL_PORT")
+	settings.MySqlSettings.Port = strings.TrimPrefix(os.Getenv("MYSQL_PORT"), ":")
 	if settings.MySqlSettings.Port == "" {
 		settings.MySqlSettings.Port = "3306"
 	}

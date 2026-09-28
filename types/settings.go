@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type AppSettings struct {
 	Debug         bool   `json:"debug"`
@@ -30,6 +33,9 @@ func (s AppSettings) Validate() error {
 	if s.UseMySQL {
 		if s.MySqlSettings.Username == "" || s.MySqlSettings.Host == "" || s.MySqlSettings.Database == "" {
 			return fmt.Errorf("MYSQL_USERNAME, MYSQL_HOST and MYSQL_DATABASE must be set when USE_MYSQL=true")
+		}
+		if strings.HasPrefix(s.MySqlSettings.Port, ":") {
+			return fmt.Errorf("MYSQL_PORT must not contain leading ':'")
 		}
 	}
 	return nil
