@@ -56,6 +56,9 @@ func loadSettings(filenames ...string) {
 		settings.UseSqlite = true
 	}
 	settings.AuthToken = os.Getenv("AUTH_TOKEN")
+	if settings.AuthToken == "" {
+		settings.AuthToken = "sudde"
+	}
 
 	settings.MySqlSettings.Username = os.Getenv("MYSQL_USERNAME")
 	settings.MySqlSettings.Password = os.Getenv("MYSQL_PASSWORD")

@@ -6,11 +6,12 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/johansundell/template-service/handlers"
+	"github.com/johansundell/template-service/router"
 	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/utils"
 	"github.com/kardianos/service"
@@ -87,7 +88,7 @@ func (p *program) run(startup chan<- error) error {
 			return err
 		}
 	} else if settings.UseSqlite {
-		mydb, err = newSqliteDatabase(utils.GetBinaryBasePath() + string(os.PathSeparator) + "test.db")
+		mydb, err = newSqliteDatabase(filepath.Join(utils.GetBinaryBasePath(), "test.db"))
 		if err != nil {
 			if logger != nil {
 				logger.Errorf("failed to initialize sqlite storage: %v", err)
@@ -121,7 +122,13 @@ func (p *program) run(startup chan<- error) error {
 	store := store.NewStorage(mydb)
 	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, Version)
 
-	router, err := NewRouter(handler, store, settings)
+	routerEngine, err := router.NewRouter(router.Config{
+		Handler:  handler,
+		Store:    store,
+		Settings: settings,
+		Assets:   embededFiles,
+		Version:  Version,
+	})
 	if err != nil {
 		if logger != nil {
 			logger.Errorf("failed to create router: %v", err)
@@ -132,7 +139,7 @@ func (p *program) run(startup chan<- error) error {
 		return err
 	}
 	srv := &http.Server{
-		Handler: http.TimeoutHandler(router, time.Duration(settings.Timeout)*time.Second, "Timeout"),
+		Handler: http.TimeoutHandler(routerEngine, time.Duration(settings.Timeout)*time.Second, "Timeout"),
 		Addr:    settings.Port,
 	}
 	listener, err := net.Listen("tcp", settings.Port)
