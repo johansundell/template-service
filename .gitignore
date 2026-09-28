@@ -20,3 +20,6 @@
 .env
 *.db-wal
 *.db-shm
+
+# Written by the code-review skill
+CODE_REVIEW.md
