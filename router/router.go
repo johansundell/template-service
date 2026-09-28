@@ -67,12 +67,15 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		if route.UseAuth && cfg.Settings.AuthToken == "" {
 			return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
 		}
+		if route.UseLogger && cfg.Store == nil {
+			return nil, fmt.Errorf("store must be configured for logged route %q", route.Name)
+		}
 
 		fn := route.HandlerFunc
 
 		// Apply Logger Middleware first (innermost), so it only runs after auth passes.
 		// Wrapping order is inside-out: the last wrapper applied is the first to execute.
-		if route.UseLogger && cfg.Store != nil {
+		if route.UseLogger {
 			fn = LoggerMiddleware(cfg.Store)(fn)
 		}
 
