@@ -5,5 +5,7 @@ dist
 build
 *.exe
 *.test
-test.db
+*.db
+*.db-wal
+*.db-shm
 .env

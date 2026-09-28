@@ -18,8 +18,8 @@
 /dist
 /build
 .env
-test_mysql_positive.db-shm
-test_mysql_positive.db-wal
-test.db-wal
+*.db-wal
 *.db-shm
-test.*
+
+# Written by the code-review skill
+CODE_REVIEW.md
