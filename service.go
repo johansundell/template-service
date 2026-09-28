@@ -111,13 +111,6 @@ func (p *program) run(startup chan<- error) error {
 		startup <- err
 		return err
 	}
-	if settings.AuthToken == "" {
-		if logger != nil {
-			logger.Warning("AUTH_TOKEN is not set; authentication is disabled.")
-		} else {
-			log.Printf("AUTH_TOKEN is not set; authentication is disabled.")
-		}
-	}
 
 	store := store.NewStorage(mydb)
 	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, Version)

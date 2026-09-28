@@ -31,6 +31,7 @@ func TestStart_WithMySQLEnv_UsesMockedConstructor(t *testing.T) {
 	os.Setenv("MYSQL_HOST", "localhost")
 	os.Setenv("MYSQL_DATABASE", "db")
 	os.Setenv("MYSQL_PORT", "3306")
+	t.Setenv("AUTH_TOKEN", "test-token")
 
 	// Override newMySQLStorage to return an on-disk sqlite DB so initialization succeeds
 	orig := newMySQLStorage
