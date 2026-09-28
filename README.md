@@ -109,7 +109,7 @@ The application is configured via environment variables. You can set these in a 
 | `MYSQL_USERNAME` | string | - | MySQL username. |
 | `MYSQL_PASSWORD` | string | - | MySQL password. |
 | `MYSQL_HOST` | string | - | MySQL host address. |
-| `MYSQL_PORT` | string | - | MySQL port. |
+| `MYSQL_PORT` | string | `3306` | MySQL port. |
 | `MYSQL_DATABASE` | string | - | MySQL database name. |
 
 
