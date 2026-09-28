@@ -4,7 +4,7 @@ USE_FILE_SYSTEM=true
 TIMEOUT=15
 USE_MYSQL=false
 USE_SQLITE=true
-# required: set a secret token
+# leave empty to generate a temporary token on each start
 AUTH_TOKEN=""
 MYSQL_USERNAME=""
 MYSQL_PASSWORD=""

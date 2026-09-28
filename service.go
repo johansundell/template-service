@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"log"
 	"net"
@@ -111,6 +112,7 @@ func (p *program) run(startup chan<- error) error {
 		startup <- err
 		return err
 	}
+	ensureAuthToken()
 
 	store := store.NewStorage(mydb)
 	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, Version)
@@ -175,4 +177,19 @@ func (p *program) Stop(s service.Service) error {
 	}
 	close(p.exit)
 	return nil
+}
+
+// ensureAuthToken generates a temporary random token when AUTH_TOKEN is not
+// configured, so protected routes stay locked down. The token is logged
+// because it is the only way to call those routes during this run.
+func ensureAuthToken() {
+	if settings.AuthToken != "" {
+		return
+	}
+	settings.AuthToken = rand.Text()
+	if logger != nil {
+		logger.Warningf("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
+	} else {
+		log.Printf("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
+	}
 }

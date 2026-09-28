@@ -31,3 +31,27 @@ func TestStart_DatabaseInitializationErrorReturnsError(t *testing.T) {
 		t.Fatal("expected run to return the database initialization error")
 	}
 }
+
+func TestEnsureAuthToken(t *testing.T) {
+	orig := settings.AuthToken
+	defer func() { settings.AuthToken = orig }()
+
+	settings.AuthToken = ""
+	ensureAuthToken()
+	first := settings.AuthToken
+	if first == "" {
+		t.Fatal("expected a generated token, got empty string")
+	}
+
+	settings.AuthToken = ""
+	ensureAuthToken()
+	if settings.AuthToken == first {
+		t.Errorf("expected a new random token on each call, got %q twice", first)
+	}
+
+	settings.AuthToken = "configured"
+	ensureAuthToken()
+	if settings.AuthToken != "configured" {
+		t.Errorf("expected configured token to be kept, got %q", settings.AuthToken)
+	}
+}
