@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -113,14 +114,19 @@ func TestStartupAuthValidation(t *testing.T) {
 		AuthToken: "",
 	}
 
-	h := handlers.NewHandler(nil, false, fstest.MapFS{}, "test", "dev")
+	mockStore := store.NewStorage(nil)
+	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	_, err := router.NewRouter(router.Config{
 		Handler:  h,
+		Store:    mockStore,
 		Settings: settings,
 	})
 	if err == nil {
 		t.Fatalf("Expected NewRouter to fail when protected routes exist without AuthToken, got nil")
+	}
+	if !strings.Contains(err.Error(), "AUTH_TOKEN must be configured") {
+		t.Fatalf("Expected AUTH_TOKEN error, got: %v", err)
 	}
 }
 
@@ -218,6 +224,56 @@ func TestNewRouter_RequiresRoutesOrHandler(t *testing.T) {
 		t.Fatalf("Expected NewRouter to fail when neither Routes nor Handler is provided, got nil")
 	}
 	expected := "routes or handler must be provided"
+	if err.Error() != expected {
+		t.Errorf("Expected error %q, got %q", expected, err.Error())
+	}
+}
+
+func TestStartupLoggerStoreValidation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	settings := types.AppSettings{
+		AuthToken: "secret-token",
+	}
+
+	h := handlers.NewHandler(nil, false, fstest.MapFS{}, "test", "dev")
+
+	_, err := router.NewRouter(router.Config{
+		Handler:  h,
+		Store:    nil,
+		Settings: settings,
+	})
+	if err == nil {
+		t.Fatalf("Expected NewRouter to fail when logged routes exist without Store, got nil")
+	}
+	expected := `store must be configured for logged route "Ping"`
+	if err.Error() != expected {
+		t.Errorf("Expected error %q, got %q", expected, err.Error())
+	}
+}
+
+func TestNewRouter_LoggedRouteRequiresStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	customRoutes := router.Routes{
+		router.Route{
+			Name:        "LoggedRoute",
+			Method:      "GET",
+			Pattern:     "/logged",
+			HandlerFunc: func(c *gin.Context) error { return nil },
+			UseLogger:   true,
+		},
+	}
+
+	_, err := router.NewRouter(router.Config{
+		Routes:  customRoutes,
+		Store:   nil,
+		Version: "v1.0.0",
+	})
+	if err == nil {
+		t.Fatalf("Expected NewRouter to fail when logged route has no Store, got nil")
+	}
+	expected := `store must be configured for logged route "LoggedRoute"`
 	if err.Error() != expected {
 		t.Errorf("Expected error %q, got %q", expected, err.Error())
 	}
