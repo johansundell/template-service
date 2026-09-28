@@ -4,22 +4,17 @@ import (
 	"database/sql"
 	"time"
 
-	//_ "github.com/mattn/go-sqlite3"
-	//_ "modernc.org/sqlite"
 	_ "github.com/ncruces/go-sqlite3/driver"
-	//_ "github.com/ncruces/go-sqlite3/embed"
 )
 
 func NewSqliteDatabase(file string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "file:"+file)
+	// SQLite-specific pragmas for better concurrency and durability, set in the
+	// DSN so the driver applies them to every connection it opens.
+	// WAL mode and a busy timeout reduce SQLITE_BUSY errors under contention.
+	db, err := sql.Open("sqlite3", "file:"+file+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, err
 	}
-
-	// SQLite-specific pragmas for better concurrency and durability
-	// Use WAL mode and set a busy timeout to reduce SQLITE_BUSY errors under contention
-	db.Exec(`PRAGMA journal_mode = WAL`)
-	db.Exec(`PRAGMA busy_timeout = 5000`)
 
 	// Connection pool: limit to a single writer connection for file-backed SQLite
 	db.SetMaxOpenConns(1)
