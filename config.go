@@ -67,6 +67,4 @@ func loadSettings(filenames ...string) {
 	}
 	settings.MySqlSettings.Database = os.Getenv("MYSQL_DATABASE")
 
-	//fmt.Println("Settings loaded:", settings)
-
 }

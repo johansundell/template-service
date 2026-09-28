@@ -30,7 +30,6 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 	if err != nil {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
-	//fmt.Println(logs)
 
 	c.JSON(http.StatusOK, logs)
 	return nil
