@@ -207,3 +207,18 @@ func TestCustomRoutes(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 }
+
+func TestNewRouter_RequiresRoutesOrHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	_, err := router.NewRouter(router.Config{
+		Version: "v1.0.0",
+	})
+	if err == nil {
+		t.Fatalf("Expected NewRouter to fail when neither Routes nor Handler is provided, got nil")
+	}
+	expected := "routes or handler must be provided"
+	if err.Error() != expected {
+		t.Errorf("Expected error %q, got %q", expected, err.Error())
+	}
+}
