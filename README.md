@@ -10,14 +10,14 @@ A robust Go-based service template designed for quick bootstrapping of web servi
   - Health check endpoint. Returns 200 OK if the service is running.
 
 - **GET /ping/:argument**
-  - Echo endpoint. Returns `{"ping": ":argument"}`.
+  - Echo endpoint. Returns `{"result": "<argument>"}`.
 
 ### Protected Endpoints
 
 These endpoints require an `Authorization` header with the configured `AUTH_TOKEN` (e.g., `Authorization: Bearer <token>` or `Authorization: <token>`).
 
-- **GET /pong/:argument**
-  - Echo endpoint. Returns `{"pong": ":argument"}`.
+- **POST /pong**
+  - Echo endpoint. Accepts a JSON body and returns `{"message": <input>}`.
 
 - **GET /logs/:from/:to**
   - Retrieve usage logs within a date range.
@@ -55,7 +55,7 @@ The application can be installed as a system service.
 
 ### Prerequisites
 
-- [Go](https://golang.org/dl/) 1.24 or higher
+- [Go](https://golang.org/dl/) 1.27.1 or higher
 - [Make](https://www.gnu.org/software/make/) (optional, for build scripts)
 - [Docker](https://www.docker.com/) (optional, for containerized run)
 
