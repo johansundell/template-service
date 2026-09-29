@@ -197,6 +197,10 @@ func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
 	}
 }
 
+// maxRequestBodyBytes caps how much of a request body LoggerMiddleware reads
+// and stores; larger requests are rejected with 413.
+const maxRequestBodyBytes = 1 << 20
+
 // LoggerMiddleware logs requests and responses using the provided Store and Logger
 func LoggerMiddleware(s store.Store, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
 	if l == nil {
@@ -204,18 +208,26 @@ func LoggerMiddleware(s store.Store, l Logger) func(HandlerFuncWithError) Handle
 	}
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
-			// Read the request body once
+			// Read the request body once, capped so large requests can't
+			// exhaust memory or bloat the request log
 			var requestBody []byte
 			if c.Request.Body != nil {
+				body := http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
 				var readErr error
-				requestBody, readErr = io.ReadAll(c.Request.Body)
-				c.Request.Body.Close()
+				requestBody, readErr = io.ReadAll(body)
+				body.Close()
 				if readErr != nil {
+					var tooLarge *http.MaxBytesError
+					if errors.As(readErr, &tooLarge) {
+						l.Warningf("request body too large: %s %s from %s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
+						return httperror.ReturnWithHTTPStatus(readErr, http.StatusRequestEntityTooLarge)
+					}
 					l.Errorf("failed to read request body: %v", readErr)
+					return readErr
 				}
 
 				// Reset the request body so it can be read again
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+				c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
 			}
 
 			// Wrap the original ResponseWriter with our Gin-compatible wrapper
@@ -266,7 +278,12 @@ type bodyLogWriter struct {
 	body *bytes.Buffer
 }
 
-func (w bodyLogWriter) Write(b []byte) (int, error) {
+func (w *bodyLogWriter) Write(b []byte) (int, error) {
 	w.body.Write(b)
 	return w.ResponseWriter.Write(b)
+}
+
+func (w *bodyLogWriter) WriteString(s string) (int, error) {
+	w.body.WriteString(s)
+	return w.ResponseWriter.WriteString(s)
 }
