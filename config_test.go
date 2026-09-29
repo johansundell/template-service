@@ -2,7 +2,10 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/johansundell/template-service/utils"
 )
 
 func TestLoadSettings(t *testing.T) {
@@ -98,4 +101,50 @@ func TestLoadSettings_MySQLPort(t *testing.T) {
 
 	// Restore original settings
 	loadSettings()
+}
+
+func TestLoadSettings_SqlitePath(t *testing.T) {
+	orig := os.Getenv("SQLITE_PATH")
+	defer func() {
+		if orig == "" {
+			os.Unsetenv("SQLITE_PATH")
+		} else {
+			os.Setenv("SQLITE_PATH", orig)
+		}
+		loadSettings()
+	}()
+
+	testPath := func(t *testing.T, content string) string {
+		tmpEnv, err := os.CreateTemp("", ".env.*")
+		if err != nil {
+			t.Fatalf("Failed to create temp env file: %v", err)
+		}
+		defer os.Remove(tmpEnv.Name())
+
+		if _, err := tmpEnv.WriteString(content); err != nil {
+			t.Fatalf("Failed to write to temp env file: %v", err)
+		}
+		tmpEnv.Close()
+
+		loadSettings(tmpEnv.Name())
+		return settings.SqlitePath
+	}
+
+	t.Run("custom sqlite path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		customPath := filepath.Join(tmpDir, "app.db")
+		got := testPath(t, "SQLITE_PATH="+customPath+"\n")
+		if got != customPath {
+			t.Errorf("expected settings.SqlitePath %q, got %q", customPath, got)
+		}
+	})
+
+	t.Run("default sqlite path when unset", func(t *testing.T) {
+		os.Unsetenv("SQLITE_PATH")
+		got := testPath(t, "DEBUG=true\n")
+		expected := filepath.Join(utils.GetBinaryBasePath(), nameOfService+".db")
+		if got != expected {
+			t.Errorf("expected default settings.SqlitePath %q, got %q", expected, got)
+		}
+	})
 }

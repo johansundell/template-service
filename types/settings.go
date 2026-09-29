@@ -13,6 +13,7 @@ type AppSettings struct {
 	UseMySQL      bool   `json:"useMysql"`
 	UseSqlite     bool   `json:"useSqlite"`
 	AuthToken     string `json:"authToken"`
+	SqlitePath    string `json:"sqlitePath"`
 	MySqlSettings struct {
 		Username string `json:"username"`
 		Password string `json:"password"`

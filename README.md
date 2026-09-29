@@ -88,10 +88,10 @@ make build
 To run the service using Docker Compose:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-This will start the service on the configured port (default 8080).
+This will start the service on the configured port (default 8080) and mount `./data` to `/app/data` to persist SQLite database files (including WAL and SHM files).
 
 ## Configuration
 
@@ -105,6 +105,7 @@ The application is configured via environment variables. You can set these in a 
 | `TIMEOUT` | int | `15` | Request timeout in seconds. |
 | `USE_MYSQL` | bool | `false` | Enable MySQL database support. |
 | `USE_SQLITE` | bool | `false` | Enable SQLite database support. |
+| `SQLITE_PATH` | string | `<binary dir>/<nameOfService>.db` | Path to SQLite database file. |
 | `AUTH_TOKEN` | string | - | Token required for protected endpoints. |
 | `MYSQL_USERNAME` | string | - | MySQL username. |
 | `MYSQL_PASSWORD` | string | - | MySQL password. |

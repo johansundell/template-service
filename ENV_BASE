@@ -4,6 +4,8 @@ USE_FILE_SYSTEM=true
 TIMEOUT=15
 USE_MYSQL=false
 USE_SQLITE=true
+# optional path to sqlite database file (defaults to <binary dir>/<nameOfService>.db)
+SQLITE_PATH=""
 # leave empty to generate a temporary token on each start
 AUTH_TOKEN=""
 MYSQL_USERNAME=""

@@ -10,6 +10,11 @@ import (
 )
 
 func TestStart_WithMySQLEnv_UsesMockedConstructor(t *testing.T) {
+	if _, err := os.Stat(".env"); err == nil {
+		os.Rename(".env", ".env.bak")
+		defer os.Rename(".env.bak", ".env")
+	}
+
 	// Backup envs
 	keys := []string{"USE_MYSQL", "MYSQL_USERNAME", "MYSQL_HOST", "MYSQL_DATABASE", "MYSQL_PORT"}
 	bak := map[string]string{}
