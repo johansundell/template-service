@@ -1,6 +1,6 @@
 ---
 name: go-service-template
-description: Build, scaffold, or extend Go web services using the template-service design pattern. Use when creating new Go microservices or adding endpoints that follow kardianos/service lifecycle management, interface-decoupled SQLite/MySQL storage, Gin routes with typed errors, constant-time authentication, audit logging, and embedded or filesystem assets.
+description: Square Moon template-service for Go daemons - kardianos/service lifecycle, store.Store with WASM SQLite/MySQL, Gin routes with error-returning handlers, embedded or filesystem assets. Use when working in a repo that already follows template-service, or when explicitly asked to scaffold a new Square Moon Go service. Not general Go or general Gin guidance.
 ---
 
 # Go Service Template Pattern
@@ -44,7 +44,7 @@ Use the repository implementation as the source of truth. The important boundari
 3. **SQLite**: Use `github.com/ncruces/go-sqlite3` to keep builds CGO-free.
 4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
 5. **Routes**: Declare routes as `Route` values in `router.GetRoutes(handler)`; `router.NewRouter(cfg)` applies middleware and registers them.
-6. **Authentication**: Protected routes fail closed. An empty `AUTH_TOKEN` must cause startup validation to fail when any route has `UseAuth: true`. Compare tokens with `subtle.ConstantTimeCompare`.
+6. **Authentication**: Protected routes fail closed. `router.NewRouter` rejects an empty `AUTH_TOKEN` when any route has `UseAuth: true`. When `AUTH_TOKEN` is unset, the service generates a random temporary token and logs it before building the router; real deployments must set `AUTH_TOKEN`. Compare tokens with `subtle.ConstantTimeCompare`.
 7. **Assets**: Embedded assets are the default and require non-nil `cfg.Assets`. Filesystem mode loads assets and templates from paths relative to the executable directory.
 8. **Ownership**: Close database handles on constructor failure and service shutdown. Do not use `log.Fatal` in reusable service or library code.
 
@@ -60,11 +60,11 @@ type Store interface {
 }
 ```
 
-Constructors should close an opened handle if schema creation fails:
+Constructors should close an opened handle if schema creation fails. Set SQLite pragmas in the DSN, not with `db.Exec`: the driver then applies them to every pooled connection, and a bad pragma surfaces as an error on the first statement:
 
 ```go
 func NewSqliteDatabase(file string) (*sql.DB, error) {
-    db, err := sql.Open("sqlite3", "file:"+file)
+    db, err := sql.Open("sqlite3", "file:"+file+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
     if err != nil {
         return nil, err
     }
@@ -122,6 +122,16 @@ type Config struct {
 }
 ```
 
+Middleware logs through the leveled `router.Logger` interface. The service passes an adapter over the `kardianos/service` logger, so errors reach the system log at the right level:
+
+```go
+type Logger interface {
+    Infof(format string, v ...interface{})
+    Warningf(format string, v ...interface{})
+    Errorf(format string, v ...interface{})
+}
+```
+
 The route collection in `router/routes.go` is the extension point:
 
 ```go
@@ -141,7 +151,7 @@ func GetRoutes(handler *handlers.Handler) Routes {
 }
 ```
 
-`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (failing fast at startup), applies authentication outside the logger, then registers `WrapHandler`:
+`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (returning an error instead of registering an unsafe route), applies authentication outside the logger, then registers `WrapHandler`:
 
 ```go
 if cfg.Handler == nil {
@@ -186,7 +196,7 @@ func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
 
 ### Authentication
 
-Middleware must never turn a protected route into a public route because configuration is missing. Startup validation is the primary guard; the middleware should also fail closed if called directly:
+Middleware must never turn a protected route into a public route because configuration is missing. The service guarantees a token before building the router (`ensureAuthToken`), and `NewRouter` rejects protected routes without one; the middleware should also fail closed if called directly:
 
 ```go
 if authToken == "" {
@@ -197,18 +207,19 @@ if authToken == "" {
 }
 ```
 
-Accept the configured authorization format consistently, reject missing or invalid credentials with 401, and use `subtle.ConstantTimeCompare` for the final comparison.
+Accept the configured authorization format consistently, reject missing or invalid credentials with 401, and use `subtle.ConstantTimeCompare` for the final comparison. Log rejected requests through the injected logger without the token value.
 
 ### LoggerMiddleware
 
-The logger middleware must restore the request body after reading it so JSON binding still works, and wrap Gin's writer to capture response bytes:
+The logger middleware must restore the request body after reading it so JSON binding still works, and wrap Gin's writer to capture response bytes. A failed body read is logged, not returned, so request logging never changes the response:
 
 ```go
-requestBody, err := io.ReadAll(c.Request.Body)
-if err != nil {
-    return err
+requestBody, readErr := io.ReadAll(c.Request.Body)
+c.Request.Body.Close()
+if readErr != nil {
+    l.Errorf("failed to read request body: %v", readErr)
 }
-c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
+c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
 writer := &bodyLogWriter{
     ResponseWriter: c.Writer,
@@ -221,7 +232,7 @@ handlerErr := inner(c)
 return handlerErr
 ```
 
-Apply auth outside the logger when unauthorized request bodies should not be persisted. Persistence failures should be logged without replacing the handler's response error.
+Apply auth outside the logger when unauthorized request bodies should not be persisted. Persistence failures should be logged with `l.Errorf` without replacing the handler's response error.
 
 ## Service Lifecycle
 
@@ -252,6 +263,7 @@ func (p *program) run(startup chan<- error) error {
         startup <- err
         return err
     }
+    ensureAuthToken() // random temporary token when AUTH_TOKEN is unset
 
     // Build handler/router, bind the listener, then send startup <- nil.
     // Serve asynchronously, wait for p.exit, and call srv.Shutdown(ctx).
