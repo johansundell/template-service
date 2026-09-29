@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -23,8 +23,7 @@ func TestAuthCheck(t *testing.T) {
 		AuthToken: "secret-token",
 	}
 
-	tmpFile := "test_router_auth.db"
-	defer os.Remove(tmpFile)
+	tmpFile := filepath.Join(t.TempDir(), "test_router_auth.db")
 
 	db, err := store.NewSqliteDatabase(tmpFile)
 	if err != nil {
@@ -46,64 +45,59 @@ func TestAuthCheck(t *testing.T) {
 		t.Fatalf("NewRouter failed: %v", err)
 	}
 
-	t.Run("Missing Auth Header", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
-		req.Header.Set("Content-Type", "application/json")
-		r.ServeHTTP(w, req)
+	tests := []struct {
+		name       string
+		authHeader string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "Missing Auth Header",
+			authHeader: "",
+			body:       `{"test":"data"}`,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "Invalid Auth Header",
+			authHeader: "wrong-token",
+			body:       `{"test":"data"}`,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "Valid Auth Header",
+			authHeader: "secret-token",
+			body:       `{"test":"data"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "Valid Bearer Auth Header",
+			authHeader: "Bearer secret-token",
+			body:       `{"test":"data"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "Valid Auth With Invalid JSON",
+			authHeader: "secret-token",
+			body:       `{invalid`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("Expected status 401, got %d", w.Code)
-		}
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			if tc.authHeader != "" {
+				req.Header.Set("Authorization", tc.authHeader)
+			}
+			r.ServeHTTP(w, req)
 
-	t.Run("Invalid Auth Header", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "wrong-token")
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("Expected status 401, got %d", w.Code)
-		}
-	})
-
-	t.Run("Valid Auth Header", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "secret-token")
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
-	})
-
-	t.Run("Valid Bearer Auth Header", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer secret-token")
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
-	})
-
-	t.Run("Valid Auth With Invalid JSON", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{invalid`))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "secret-token")
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d", w.Code)
-		}
-	})
+			if w.Code != tc.wantStatus {
+				t.Errorf("Expected status %d, got %d", tc.wantStatus, w.Code)
+			}
+		})
+	}
 }
 
 func TestStartupAuthValidation(t *testing.T) {
