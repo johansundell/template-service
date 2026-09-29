@@ -38,15 +38,25 @@ type Route struct {
 // Routes is a collection of Route definitions
 type Routes []Route
 
-// Logger defines a logging interface for router middleware
+// Logger defines a leveled logging interface for router middleware
 type Logger interface {
-	Printf(format string, v ...interface{})
+	Infof(format string, v ...interface{})
+	Warningf(format string, v ...interface{})
+	Errorf(format string, v ...interface{})
 }
 
 type stdLogger struct{}
 
-func (stdLogger) Printf(format string, v ...interface{}) {
+func (stdLogger) Infof(format string, v ...interface{}) {
 	log.Printf(format, v...)
+}
+
+func (stdLogger) Warningf(format string, v ...interface{}) {
+	log.Printf("WARNING: "+format, v...)
+}
+
+func (stdLogger) Errorf(format string, v ...interface{}) {
+	log.Printf("ERROR: "+format, v...)
 }
 
 // Config contains the dependencies and settings required to construct a router
@@ -96,7 +106,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		// Apply Auth Middleware second (outermost), so it executes first and rejects
 		// unauthenticated requests before the logger reads or stores the body.
 		if route.UseAuth {
-			fn = AuthMiddleware(cfg.Store, cfg.Settings.AuthToken, l)(fn)
+			fn = AuthMiddleware(cfg.Settings.AuthToken, l)(fn)
 		}
 
 		router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
@@ -113,18 +123,15 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 }
 
 // AuthMiddleware returns a middleware that validates the Authorization header
-func AuthMiddleware(s store.Store, authToken string, loggers ...Logger) func(HandlerFuncWithError) HandlerFuncWithError {
-	var l Logger
-	if len(loggers) > 0 && loggers[0] != nil {
-		l = loggers[0]
+func AuthMiddleware(authToken string, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
+	if l == nil {
+		l = stdLogger{}
 	}
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 
 			if authToken == "" {
-				if l != nil {
-					l.Printf("WARNING: AUTH_TOKEN is not set.")
-				}
+				l.Warningf("AUTH_TOKEN is not set")
 				return httperror.ReturnWithHTTPStatus(
 					errors.New("authentication is not configured"),
 					http.StatusInternalServerError,
@@ -133,6 +140,7 @@ func AuthMiddleware(s store.Store, authToken string, loggers ...Logger) func(Han
 
 			authHeader := c.GetHeader("Authorization")
 			if authHeader == "" {
+				l.Warningf("unauthorized request: %s %s from %s: missing authorization header", c.Request.Method, c.Request.URL.Path, c.ClientIP())
 				return httperror.ReturnWithHTTPStatus(
 					fmt.Errorf("missing authorization header"),
 					http.StatusUnauthorized,
@@ -149,6 +157,7 @@ func AuthMiddleware(s store.Store, authToken string, loggers ...Logger) func(Han
 
 			// Use constant time comparison to prevent timing attacks
 			if subtle.ConstantTimeCompare([]byte(token), []byte(authToken)) != 1 {
+				l.Warningf("unauthorized request: %s %s from %s: invalid authorization token", c.Request.Method, c.Request.URL.Path, c.ClientIP())
 				return httperror.ReturnWithHTTPStatus(
 					fmt.Errorf("invalid authorization token"),
 					http.StatusUnauthorized,
@@ -189,10 +198,9 @@ func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
 }
 
 // LoggerMiddleware logs requests and responses using the provided Store and Logger
-func LoggerMiddleware(s store.Store, loggers ...Logger) func(HandlerFuncWithError) HandlerFuncWithError {
-	var l Logger = stdLogger{}
-	if len(loggers) > 0 && loggers[0] != nil {
-		l = loggers[0]
+func LoggerMiddleware(s store.Store, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
+	if l == nil {
+		l = stdLogger{}
 	}
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
@@ -203,7 +211,7 @@ func LoggerMiddleware(s store.Store, loggers ...Logger) func(HandlerFuncWithErro
 				requestBody, readErr = io.ReadAll(c.Request.Body)
 				c.Request.Body.Close()
 				if readErr != nil {
-					l.Printf("failed to read request body: %v", readErr)
+					l.Errorf("failed to read request body: %v", readErr)
 				}
 
 				// Reset the request body so it can be read again
@@ -241,11 +249,11 @@ func LoggerMiddleware(s store.Store, loggers ...Logger) func(HandlerFuncWithErro
 				usageLog.Request = types.RawJSON("{}")
 			}
 
-			// Persist request log; if persistence fails, record the error to std log
+			// Persist request log; if persistence fails, record the error to logger
 			if persistErr := s.LogRequest(usageLog.Status, usageLog.Method, usageLog.Error, usageLog.Endpoint, usageLog.CreatedAt.Format(time.RFC3339), string(usageLog.Response), string(usageLog.Request)); persistErr != nil {
-				l.Printf("failed to persist request log: %v", persistErr)
+				l.Errorf("failed to persist request log: %v", persistErr)
 			} else {
-				l.Printf("request logged: %s %s %d", usageLog.Method, usageLog.Endpoint, usageLog.Status)
+				l.Infof("request logged: %s %s %d", usageLog.Method, usageLog.Endpoint, usageLog.Status)
 			}
 
 			return err
