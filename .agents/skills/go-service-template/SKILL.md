@@ -137,11 +137,11 @@ for _, route := range routes {
     }
 
     fn := route.HandlerFunc
-    if route.UseLogger && cfg.Store != nil {
-        fn = LoggerMiddleware(cfg.Store)(fn)
+    if route.UseLogger {
+        fn = LoggerMiddleware(cfg.Store, l)(fn)
     }
     if route.UseAuth {
-        fn = AuthMiddleware(cfg.Settings.AuthToken)(fn)
+        fn = AuthMiddleware(cfg.Store, cfg.Settings.AuthToken, l)(fn)
     }
     router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
 }
