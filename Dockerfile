@@ -25,6 +25,7 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates \
     && addgroup -S appgroup \
     && adduser -S appuser -G appgroup \
+    && mkdir -p /app/data \
     && chown -R appuser:appgroup /app
 
 # Copy binary from builder

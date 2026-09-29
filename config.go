@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/johansundell/template-service/types"
+	"github.com/johansundell/template-service/utils"
 	"github.com/joho/godotenv"
 )
 
@@ -55,6 +56,10 @@ func loadSettings(filenames ...string) {
 	settings.UseMySQL, _ = strconv.ParseBool(os.Getenv("USE_MYSQL"))
 	if !settings.UseMySQL {
 		settings.UseSqlite = true
+	}
+	settings.SqlitePath = os.Getenv("SQLITE_PATH")
+	if settings.SqlitePath == "" {
+		settings.SqlitePath = filepath.Join(utils.GetBinaryBasePath(), nameOfService+".db")
 	}
 	settings.AuthToken = os.Getenv("AUTH_TOKEN")
 

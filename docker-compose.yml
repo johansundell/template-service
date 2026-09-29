@@ -4,10 +4,11 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./template-service.db:/app/template-service.db
+      - ./data:/app/data
     environment:
       - PORT=:8080
       - USE_FILE_SYSTEM=false
       - USE_SQLITE=true
+      - SQLITE_PATH=/app/data/template-service.db
       - DEBUG=true
     restart: unless-stopped

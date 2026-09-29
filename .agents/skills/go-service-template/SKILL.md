@@ -275,4 +275,4 @@ When filesystem mode is enabled, package the `assets` and `tmpl` directories bes
 
 ## Docker Standard
 
-Use a multi-stage CGO-free build. Copy the binary, `assets`, and `tmpl` into the same runtime directory, run as a non-root user, and expose the configured HTTP port. Keep the image health check pointed at the public health endpoint.
+Use a multi-stage CGO-free build. Copy the binary, `assets`, and `tmpl` into the same runtime directory, run as a non-root user, and expose the configured HTTP port. Keep the image health check pointed at the public health endpoint. When deploying with SQLite, mount a directory (e.g. `./data:/app/data`) for `SQLITE_PATH` so WAL and SHM files persist.

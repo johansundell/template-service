@@ -71,7 +71,11 @@ func (p *program) run(startup chan<- error) error {
 			return err
 		}
 	} else if settings.UseSqlite {
-		mydb, err = newSqliteDatabase(filepath.Join(utils.GetBinaryBasePath(), nameOfService+".db"))
+		sqlitePath := settings.SqlitePath
+		if sqlitePath == "" {
+			sqlitePath = filepath.Join(utils.GetBinaryBasePath(), nameOfService+".db")
+		}
+		mydb, err = newSqliteDatabase(sqlitePath)
 		if err != nil {
 			logError("failed to initialize sqlite storage: %v", err)
 			startup <- err
