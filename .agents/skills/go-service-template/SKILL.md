@@ -5,7 +5,7 @@ description: Square Moon template-service for Go daemons - kardianos/service lif
 
 # Go Service Template Pattern
 
-Use the repository implementation as the source of truth. The important boundaries are:
+The code examples are illustrative, not compilable. The template-service repository is the reference implementation for names and APIs; the rules below are the standard it is held to. The important boundaries are:
 
 ```text
                     +-----------------------------+
@@ -27,7 +27,7 @@ Use the repository implementation as the source of truth. The important boundari
                 |                                     |
                 |                      +--------------v--------------+
                 |                      |     Middleware Pipeline     |
-                |                      |   Auth -> Logger -> Wrap    |
+                |                      |   Wrap -> Auth -> Logger    |
                 |                      +--------------+--------------+
           +-----+-----+                               |
           |           |                +--------------v--------------+
@@ -39,7 +39,7 @@ Use the repository implementation as the source of truth. The important boundari
 
 ## Rules
 
-1. **Service lifecycle**: `Start` validates configuration and initializes storage, routing, and the listener before returning startup success. Serving runs asynchronously. `Stop` triggers graceful shutdown with a five-second deadline.
+1. **Service lifecycle**: `Start` validates configuration and initializes storage, routing, and the listener before returning startup success. Serving runs asynchronously. `Stop` triggers graceful shutdown with a five-second deadline and returns only after shutdown completes.
 2. **Storage boundary**: Handlers and middleware depend on `store.Store`, not concrete database types.
 3. **SQLite**: Use `github.com/ncruces/go-sqlite3` to keep builds CGO-free.
 4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
@@ -80,7 +80,7 @@ The service owns a successfully returned `*sql.DB` and should `defer db.Close()`
 
 ## Typed HTTP Errors
 
-`statusError` implements `Unwrap`, so status extraction must use `errors.As`. A direct type assertion loses the status after idiomatic `%w` wrapping:
+`statusError` implements `Unwrap`, so status extraction must use `errors.As`. A direct type assertion loses the status after idiomatic `%w` wrapping. `ReturnWithHTTPStatus` returns `statusError` by value; a `*statusError` would not match these targets:
 
 ```go
 func HTTPStatus(err error) int {
@@ -109,7 +109,7 @@ err := fmt.Errorf("load user: %w", ReturnWithHTTPStatus(baseErr, http.StatusNotF
 
 ## Routes and Middleware
 
-`router.Config` encapsulates dependencies and settings required to construct the router:
+`router.Config` carries the dependencies and settings required to construct the router:
 
 ```go
 type Config struct {
@@ -151,16 +151,14 @@ func GetRoutes(handler *handlers.Handler) Routes {
 }
 ```
 
-`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (returning an error instead of registering an unsafe route), applies authentication outside the logger, then registers `WrapHandler`:
+`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (returning an error instead of registering an unsafe route), applies authentication outside the logger, then registers `WrapHandler`. Request order is `WrapHandler -> Auth -> Logger -> handler`:
 
 ```go
 if cfg.Handler == nil {
     return nil, errors.New("handler must be provided")
 }
 
-routes := GetRoutes(cfg.Handler)
-
-for _, route := range routes {
+for _, route := range GetRoutes(cfg.Handler) {
     if route.UseAuth && cfg.Settings.AuthToken == "" {
         return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
     }
@@ -211,28 +209,56 @@ Accept the configured authorization format consistently, reject missing or inval
 
 ### LoggerMiddleware
 
-The logger middleware must restore the request body after reading it so JSON binding still works, and wrap Gin's writer to capture response bytes. A failed body read is logged, not returned, so request logging never changes the response:
+The logger middleware must cap and restore the request body so JSON binding still works, and wrap Gin's writer to capture response bytes. Override both `Write` and `WriteString` on a pointer receiver, or responses written as strings are missing from the log:
 
 ```go
-requestBody, readErr := io.ReadAll(c.Request.Body)
-c.Request.Body.Close()
-if readErr != nil {
-    l.Errorf("failed to read request body: %v", readErr)
+const maxRequestBodyBytes = 1 << 20
+
+type bodyLogWriter struct {
+    gin.ResponseWriter
+    body *bytes.Buffer
 }
-c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+
+func (w *bodyLogWriter) Write(b []byte) (int, error) {
+    w.body.Write(b)
+    return w.ResponseWriter.Write(b)
+}
+
+func (w *bodyLogWriter) WriteString(s string) (int, error) {
+    w.body.WriteString(s)
+    return w.ResponseWriter.WriteString(s)
+}
+```
+
+```go
+c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+requestBody, err := io.ReadAll(c.Request.Body)
+if err != nil {
+    var tooLarge *http.MaxBytesError
+    if errors.As(err, &tooLarge) {
+        return httperror.ReturnWithHTTPStatus(err, http.StatusRequestEntityTooLarge)
+    }
+    return err
+}
+c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
 
 writer := &bodyLogWriter{
     ResponseWriter: c.Writer,
-    body:            bytes.NewBuffer(nil),
+    body:           bytes.NewBuffer(nil),
 }
 c.Writer = writer
 
 handlerErr := inner(c)
+status := writer.Status()
+if handlerErr != nil {
+    // WrapHandler writes the error response after this returns.
+    status = httperror.HTTPStatus(handlerErr)
+}
 // Persist requestBody, writer.body, status, endpoint, and handlerErr.
 return handlerErr
 ```
 
-Apply auth outside the logger when unauthorized request bodies should not be persisted. Persistence failures should be logged with `l.Errorf` without replacing the handler's response error.
+Apply auth outside the logger so unauthorized request bodies are never persisted. Persistence failures should be logged with `l.Errorf` without replacing the handler's response error.
 
 ## Service Lifecycle
 
@@ -246,32 +272,66 @@ func (p *program) Start(s service.Service) error {
     }
 
     p.exit = make(chan struct{})
+    p.done = make(chan error, 1)
     startup := make(chan error, 1)
-    go p.run(startup)
+    go func() {
+        err := p.run(startup)
+        if err != nil {
+            log.Printf("service stopped: %v", err)
+        }
+        // Unblocks Start when run returns before signalling startup.
+        select {
+        case startup <- err:
+        default:
+        }
+        p.done <- err
+    }()
     return <-startup
+}
+
+func (p *program) Stop(s service.Service) error {
+    close(p.exit)
+    return <-p.done
 }
 
 func (p *program) run(startup chan<- error) error {
     db, err := openConfiguredDatabase(settings) // repository SQLite/MySQL constructors
     if err != nil {
-        startup <- err
         return err
     }
     defer db.Close()
 
     if err := db.Ping(); err != nil {
-        startup <- err
         return err
     }
     ensureAuthToken() // random temporary token when AUTH_TOKEN is unset
 
-    // Build handler/router, bind the listener, then send startup <- nil.
-    // Serve asynchronously, wait for p.exit, and call srv.Shutdown(ctx).
-    return nil
+    router, err := buildRouter(db) // repository handler + router.NewRouter wiring
+    if err != nil {
+        return err
+    }
+    ln, err := net.Listen("tcp", settings.Port)
+    if err != nil {
+        return err
+    }
+
+    srv := &http.Server{Handler: router}
+    serveErr := make(chan error, 1)
+    go func() { serveErr <- srv.Serve(ln) }()
+    startup <- nil
+
+    select {
+    case err := <-serveErr:
+        return err
+    case <-p.exit:
+    }
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    return srv.Shutdown(ctx)
 }
 ```
 
-`openConfiguredDatabase` is a descriptive placeholder, not a repository API. The real implementation must propagate database, router, and listener errors, close resources on every exit path, and avoid `log.Fatal` in the worker.
+`openConfiguredDatabase` and `buildRouter` are descriptive placeholders, not repository APIs. The real implementation must propagate database, router, and listener errors, close resources on every exit path, and avoid `log.Fatal` in the worker.
 
 ## Adding an Endpoint
 
