@@ -1,11 +1,11 @@
 ---
 name: go-service-template
-description: Build, scaffold, or extend Go web services using the template-service design pattern. Use when creating new Go microservices or adding endpoints that follow kardianos/service lifecycle management, interface-decoupled SQLite/MySQL storage, Gin routes with typed errors, constant-time authentication, audit logging, and embedded or filesystem assets.
+description: Square Moon template-service for Go daemons - kardianos/service lifecycle, store.Store with WASM SQLite/MySQL, Gin routes with error-returning handlers, embedded or filesystem assets. Use when working in a repo that already follows template-service, or when explicitly asked to scaffold a new Square Moon Go service. Not general Go or general Gin guidance.
 ---
 
 # Go Service Template Pattern
 
-Use the repository implementation as the source of truth. The important boundaries are:
+The code examples are illustrative, not compilable. The template-service repository is the reference implementation for names and APIs; the rules below are the standard it is held to. The important boundaries are:
 
 ```text
                     +-----------------------------+
@@ -27,7 +27,7 @@ Use the repository implementation as the source of truth. The important boundari
                 |                                     |
                 |                      +--------------v--------------+
                 |                      |     Middleware Pipeline     |
-                |                      |   Auth -> Logger -> Wrap    |
+                |                      |   Wrap -> Auth -> Logger    |
                 |                      +--------------+--------------+
           +-----+-----+                               |
           |           |                +--------------v--------------+
@@ -39,12 +39,12 @@ Use the repository implementation as the source of truth. The important boundari
 
 ## Rules
 
-1. **Service lifecycle**: `Start` validates configuration and initializes storage, routing, and the listener before returning startup success. Serving runs asynchronously. `Stop` triggers graceful shutdown with a five-second deadline.
+1. **Service lifecycle**: `Start` validates configuration and initializes storage, routing, and the listener before returning startup success. Serving runs asynchronously. `Stop` triggers graceful shutdown with a five-second deadline and returns only after shutdown completes.
 2. **Storage boundary**: Handlers and middleware depend on `store.Store`, not concrete database types.
 3. **SQLite**: Use `github.com/ncruces/go-sqlite3` to keep builds CGO-free.
 4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
 5. **Routes**: Declare routes as `Route` values in `router.GetRoutes(handler)`; `router.NewRouter(cfg)` applies middleware and registers them.
-6. **Authentication**: Protected routes fail closed. An empty `AUTH_TOKEN` must cause startup validation to fail when any route has `UseAuth: true`. Compare tokens with `subtle.ConstantTimeCompare`.
+6. **Authentication**: Protected routes fail closed. `router.NewRouter` rejects an empty `AUTH_TOKEN` when any route has `UseAuth: true`. When `AUTH_TOKEN` is unset, the service generates a random temporary token and logs it before building the router; real deployments must set `AUTH_TOKEN`. Compare tokens with `subtle.ConstantTimeCompare`.
 7. **Assets**: Embedded assets are the default and require non-nil `cfg.Assets`. Filesystem mode loads assets and templates from paths relative to the executable directory.
 8. **Ownership**: Close database handles on constructor failure and service shutdown. Do not use `log.Fatal` in reusable service or library code.
 
@@ -60,11 +60,11 @@ type Store interface {
 }
 ```
 
-Constructors should close an opened handle if schema creation fails:
+Constructors should close an opened handle if schema creation fails. Set SQLite pragmas in the DSN, not with `db.Exec`: the driver then applies them to every pooled connection, and a bad pragma surfaces as an error on the first statement:
 
 ```go
 func NewSqliteDatabase(file string) (*sql.DB, error) {
-    db, err := sql.Open("sqlite3", "file:"+file)
+    db, err := sql.Open("sqlite3", "file:"+file+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
     if err != nil {
         return nil, err
     }
@@ -80,7 +80,7 @@ The service owns a successfully returned `*sql.DB` and should `defer db.Close()`
 
 ## Typed HTTP Errors
 
-`statusError` implements `Unwrap`, so status extraction must use `errors.As`. A direct type assertion loses the status after idiomatic `%w` wrapping:
+`statusError` implements `Unwrap`, so status extraction must use `errors.As`. A direct type assertion loses the status after idiomatic `%w` wrapping. `ReturnWithHTTPStatus` returns `statusError` by value; a `*statusError` would not match these targets:
 
 ```go
 func HTTPStatus(err error) int {
@@ -109,7 +109,7 @@ err := fmt.Errorf("load user: %w", ReturnWithHTTPStatus(baseErr, http.StatusNotF
 
 ## Routes and Middleware
 
-`router.Config` encapsulates dependencies and settings required to construct the router:
+`router.Config` carries the dependencies and settings required to construct the router:
 
 ```go
 type Config struct {
@@ -119,6 +119,16 @@ type Config struct {
     Assets   fs.FS
     Version  string
     Logger   Logger // Optional: defaults to standard logger when nil
+}
+```
+
+Middleware logs through the leveled `router.Logger` interface. The service passes an adapter over the `kardianos/service` logger, so errors reach the system log at the right level:
+
+```go
+type Logger interface {
+    Infof(format string, v ...interface{})
+    Warningf(format string, v ...interface{})
+    Errorf(format string, v ...interface{})
 }
 ```
 
@@ -141,16 +151,14 @@ func GetRoutes(handler *handlers.Handler) Routes {
 }
 ```
 
-`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (failing fast at startup), applies authentication outside the logger, then registers `WrapHandler`:
+`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (returning an error instead of registering an unsafe route), applies authentication outside the logger, then registers `WrapHandler`. Request order is `WrapHandler -> Auth -> Logger -> handler`:
 
 ```go
 if cfg.Handler == nil {
     return nil, errors.New("handler must be provided")
 }
 
-routes := GetRoutes(cfg.Handler)
-
-for _, route := range routes {
+for _, route := range GetRoutes(cfg.Handler) {
     if route.UseAuth && cfg.Settings.AuthToken == "" {
         return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
     }
@@ -186,7 +194,7 @@ func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
 
 ### Authentication
 
-Middleware must never turn a protected route into a public route because configuration is missing. Startup validation is the primary guard; the middleware should also fail closed if called directly:
+Middleware must never turn a protected route into a public route because configuration is missing. The service guarantees a token before building the router (`ensureAuthToken`), and `NewRouter` rejects protected routes without one; the middleware should also fail closed if called directly:
 
 ```go
 if authToken == "" {
@@ -197,31 +205,60 @@ if authToken == "" {
 }
 ```
 
-Accept the configured authorization format consistently, reject missing or invalid credentials with 401, and use `subtle.ConstantTimeCompare` for the final comparison.
+Accept the configured authorization format consistently, reject missing or invalid credentials with 401, and use `subtle.ConstantTimeCompare` for the final comparison. Log rejected requests through the injected logger without the token value.
 
 ### LoggerMiddleware
 
-The logger middleware must restore the request body after reading it so JSON binding still works, and wrap Gin's writer to capture response bytes:
+The logger middleware must cap and restore the request body so JSON binding still works, and wrap Gin's writer to capture response bytes. Override both `Write` and `WriteString` on a pointer receiver, or responses written as strings are missing from the log:
 
 ```go
+const maxRequestBodyBytes = 1 << 20
+
+type bodyLogWriter struct {
+    gin.ResponseWriter
+    body *bytes.Buffer
+}
+
+func (w *bodyLogWriter) Write(b []byte) (int, error) {
+    w.body.Write(b)
+    return w.ResponseWriter.Write(b)
+}
+
+func (w *bodyLogWriter) WriteString(s string) (int, error) {
+    w.body.WriteString(s)
+    return w.ResponseWriter.WriteString(s)
+}
+```
+
+```go
+c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
 requestBody, err := io.ReadAll(c.Request.Body)
 if err != nil {
+    var tooLarge *http.MaxBytesError
+    if errors.As(err, &tooLarge) {
+        return httperror.ReturnWithHTTPStatus(err, http.StatusRequestEntityTooLarge)
+    }
     return err
 }
 c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
 
 writer := &bodyLogWriter{
     ResponseWriter: c.Writer,
-    body:            bytes.NewBuffer(nil),
+    body:           bytes.NewBuffer(nil),
 }
 c.Writer = writer
 
 handlerErr := inner(c)
+status := writer.Status()
+if handlerErr != nil {
+    // WrapHandler writes the error response after this returns.
+    status = httperror.HTTPStatus(handlerErr)
+}
 // Persist requestBody, writer.body, status, endpoint, and handlerErr.
 return handlerErr
 ```
 
-Apply auth outside the logger when unauthorized request bodies should not be persisted. Persistence failures should be logged without replacing the handler's response error.
+Apply auth outside the logger so unauthorized request bodies are never persisted. Persistence failures should be logged with `l.Errorf` without replacing the handler's response error.
 
 ## Service Lifecycle
 
@@ -235,31 +272,66 @@ func (p *program) Start(s service.Service) error {
     }
 
     p.exit = make(chan struct{})
+    p.done = make(chan error, 1)
     startup := make(chan error, 1)
-    go p.run(startup)
+    go func() {
+        err := p.run(startup)
+        if err != nil {
+            log.Printf("service stopped: %v", err)
+        }
+        // Unblocks Start when run returns before signalling startup.
+        select {
+        case startup <- err:
+        default:
+        }
+        p.done <- err
+    }()
     return <-startup
+}
+
+func (p *program) Stop(s service.Service) error {
+    close(p.exit)
+    return <-p.done
 }
 
 func (p *program) run(startup chan<- error) error {
     db, err := openConfiguredDatabase(settings) // repository SQLite/MySQL constructors
     if err != nil {
-        startup <- err
         return err
     }
     defer db.Close()
 
     if err := db.Ping(); err != nil {
-        startup <- err
+        return err
+    }
+    ensureAuthToken() // random temporary token when AUTH_TOKEN is unset
+
+    router, err := buildRouter(db) // repository handler + router.NewRouter wiring
+    if err != nil {
+        return err
+    }
+    ln, err := net.Listen("tcp", settings.Port)
+    if err != nil {
         return err
     }
 
-    // Build handler/router, bind the listener, then send startup <- nil.
-    // Serve asynchronously, wait for p.exit, and call srv.Shutdown(ctx).
-    return nil
+    srv := &http.Server{Handler: router}
+    serveErr := make(chan error, 1)
+    go func() { serveErr <- srv.Serve(ln) }()
+    startup <- nil
+
+    select {
+    case err := <-serveErr:
+        return err
+    case <-p.exit:
+    }
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    return srv.Shutdown(ctx)
 }
 ```
 
-`openConfiguredDatabase` is a descriptive placeholder, not a repository API. The real implementation must propagate database, router, and listener errors, close resources on every exit path, and avoid `log.Fatal` in the worker.
+`openConfiguredDatabase` and `buildRouter` are descriptive placeholders, not repository APIs. The real implementation must propagate database, router, and listener errors, close resources on every exit path, and avoid `log.Fatal` in the worker.
 
 ## Adding an Endpoint
 
