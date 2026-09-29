@@ -163,7 +163,7 @@ for _, route := range routes {
         fn = LoggerMiddleware(cfg.Store, l)(fn)
     }
     if route.UseAuth {
-        fn = AuthMiddleware(cfg.Store, cfg.Settings.AuthToken, l)(fn)
+        fn = AuthMiddleware(cfg.Settings.AuthToken, l)(fn)
     }
     router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
 }

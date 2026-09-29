@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -129,7 +130,7 @@ func TestAuthMiddleware_FailClosed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Standalone AuthMiddleware with empty token must return 500 and not panic
-	mw := router.AuthMiddleware(nil, "")
+	mw := router.AuthMiddleware("", nil)
 	handler := mw(func(c *gin.Context) error {
 		return nil
 	})
@@ -302,12 +303,32 @@ func TestNewRouter_FileSystemModeNilAssetsSucceeds(t *testing.T) {
 	}
 }
 
+type testLogEntry struct {
+	level   string
+	message string
+}
+
 type testLogger struct {
+	entries  []testLogEntry
 	messages []string
 }
 
-func (tl *testLogger) Printf(format string, v ...interface{}) {
-	tl.messages = append(tl.messages, fmt.Sprintf(format, v...))
+func (tl *testLogger) Infof(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	tl.entries = append(tl.entries, testLogEntry{level: "INFO", message: msg})
+	tl.messages = append(tl.messages, msg)
+}
+
+func (tl *testLogger) Warningf(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	tl.entries = append(tl.entries, testLogEntry{level: "WARN", message: msg})
+	tl.messages = append(tl.messages, msg)
+}
+
+func (tl *testLogger) Errorf(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	tl.entries = append(tl.entries, testLogEntry{level: "ERROR", message: msg})
+	tl.messages = append(tl.messages, msg)
 }
 
 func TestNewRouter_InjectedLogger(t *testing.T) {
@@ -355,9 +376,12 @@ func TestNewRouter_InjectedLogger(t *testing.T) {
 	}
 
 	found := false
-	for _, msg := range tl.messages {
-		if strings.Contains(msg, "request logged: POST /pong 200") {
+	for _, entry := range tl.entries {
+		if strings.Contains(entry.message, "request logged: POST /pong 200") {
 			found = true
+			if entry.level != "INFO" {
+				t.Errorf("Expected INFO level for successful request log, got %q", entry.level)
+			}
 			break
 		}
 	}
@@ -370,7 +394,7 @@ func TestAuthMiddleware_InjectedLoggerOnEmptyToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tl := &testLogger{}
-	mw := router.AuthMiddleware(nil, "", tl)
+	mw := router.AuthMiddleware("", tl)
 	handler := mw(func(c *gin.Context) error { return nil })
 
 	w := httptest.NewRecorder()
@@ -382,9 +406,119 @@ func TestAuthMiddleware_InjectedLoggerOnEmptyToken(t *testing.T) {
 		t.Fatalf("Expected error from AuthMiddleware with empty token, got nil")
 	}
 
-	if len(tl.messages) == 0 {
+	if len(tl.entries) == 0 {
 		t.Errorf("Expected injected logger to log warning on empty token")
-	} else if !strings.Contains(tl.messages[0], "AUTH_TOKEN is not set") {
-		t.Errorf("Expected warning message, got %q", tl.messages[0])
+	} else if tl.entries[0].level != "WARN" || !strings.Contains(tl.entries[0].message, "AUTH_TOKEN is not set") {
+		t.Errorf("Expected warning message, got %v", tl.entries[0])
+	}
+}
+
+func TestAuthMiddleware_Logs401OnMissingHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tl := &testLogger{}
+	mw := router.AuthMiddleware("secret-token", tl)
+	handler := mw(func(c *gin.Context) error { return nil })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/protected", nil)
+
+	wrapped := router.WrapHandler(handler, "1.0.0")
+	wrapped(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", w.Code)
+	}
+
+	if len(tl.entries) != 1 {
+		t.Fatalf("Expected 1 log entry, got %d", len(tl.entries))
+	}
+	entry := tl.entries[0]
+	if entry.level != "WARN" {
+		t.Errorf("Expected log level WARN, got %q", entry.level)
+	}
+	if !strings.Contains(entry.message, "unauthorized request: GET /protected") ||
+		!strings.Contains(entry.message, "missing authorization header") {
+		t.Errorf("Expected unauthorized log message with method, path, and reason, got %q", entry.message)
+	}
+}
+
+func TestAuthMiddleware_Logs401OnInvalidToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tl := &testLogger{}
+	mw := router.AuthMiddleware("secret-token", tl)
+	handler := mw(func(c *gin.Context) error { return nil })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/admin", nil)
+	c.Request.Header.Set("Authorization", "Bearer super-secret-wrong-token")
+
+	wrapped := router.WrapHandler(handler, "1.0.0")
+	wrapped(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", w.Code)
+	}
+
+	if len(tl.entries) != 1 {
+		t.Fatalf("Expected 1 log entry, got %d", len(tl.entries))
+	}
+	entry := tl.entries[0]
+	if entry.level != "WARN" {
+		t.Errorf("Expected log level WARN, got %q", entry.level)
+	}
+	if !strings.Contains(entry.message, "unauthorized request: POST /admin") ||
+		!strings.Contains(entry.message, "invalid authorization token") {
+		t.Errorf("Expected unauthorized log message with method, path, and reason, got %q", entry.message)
+	}
+	if strings.Contains(entry.message, "super-secret-wrong-token") || strings.Contains(entry.message, "secret-token") {
+		t.Errorf("Log message should not contain token values, got %q", entry.message)
+	}
+}
+
+type failingStore struct {
+	store.Store
+}
+
+func (failingStore) LogRequest(status int, method, errStr, endpoint, createdAt, response, request string) error {
+	return errors.New("simulated database failure")
+}
+
+func TestLoggerMiddleware_PersistenceFailureLogsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tl := &testLogger{}
+	mw := router.LoggerMiddleware(failingStore{}, tl)
+	handler := mw(func(c *gin.Context) error {
+		c.Status(http.StatusOK)
+		return nil
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/test-fail", nil)
+
+	wrapped := router.WrapHandler(handler, "1.0.0")
+	wrapped(c)
+
+	if len(tl.entries) == 0 {
+		t.Fatal("Expected log entries, got none")
+	}
+
+	var errEntry *testLogEntry
+	for i := range tl.entries {
+		if tl.entries[i].level == "ERROR" {
+			errEntry = &tl.entries[i]
+			break
+		}
+	}
+	if errEntry == nil {
+		t.Fatalf("Expected ERROR log entry, got %v", tl.entries)
+	}
+	if !strings.Contains(errEntry.message, "failed to persist request log: simulated database failure") {
+		t.Errorf("Expected persistence error message, got %q", errEntry.message)
 	}
 }

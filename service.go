@@ -31,23 +31,13 @@ var newSqliteDatabase = store.NewSqliteDatabase
 func (p *program) Start(s service.Service) error {
 	loadSettings()
 	if err := settings.Validate(); err != nil {
-		if logger != nil {
-			logger.Errorf("invalid configuration: %v", err)
-		}
+		logError("invalid configuration: %v", err)
 		return err
 	}
 	if service.Interactive() {
-		if logger != nil {
-			logger.Info("Running in terminal.")
-		} else {
-			log.Printf("Running in terminal.")
-		}
+		logInfo("Running in terminal.")
 	} else {
-		if logger != nil {
-			logger.Info("Running under service manager.")
-		} else {
-			log.Printf("Running under service manager.")
-		}
+		logInfo("Running under service manager.")
 	}
 	p.exit = make(chan struct{})
 
@@ -59,11 +49,7 @@ func (p *program) Start(s service.Service) error {
 }
 
 func (p *program) run(startup chan<- error) error {
-	if logger != nil {
-		logger.Infof("I'm running %v, with version %v.", service.Platform(), Version)
-	} else {
-		log.Printf("I'm running %v, with version %v.", service.Platform(), Version)
-	}
+	logInfo("I'm running %v, with version %v.", service.Platform(), Version)
 
 	var mydb *sql.DB
 	var err error
@@ -80,22 +66,14 @@ func (p *program) run(startup chan<- error) error {
 		}
 		mydb, err = newMySQLStorage(cfg)
 		if err != nil {
-			if logger != nil {
-				logger.Errorf("failed to initialize MySQL storage: %v", err)
-			} else {
-				log.Printf("failed to initialize MySQL storage: %v", err)
-			}
+			logError("failed to initialize MySQL storage: %v", err)
 			startup <- err
 			return err
 		}
 	} else if settings.UseSqlite {
 		mydb, err = newSqliteDatabase(filepath.Join(utils.GetBinaryBasePath(), nameOfService+".db"))
 		if err != nil {
-			if logger != nil {
-				logger.Errorf("failed to initialize sqlite storage: %v", err)
-			} else {
-				log.Printf("failed to initialize sqlite storage: %v", err)
-			}
+			logError("failed to initialize sqlite storage: %v", err)
 			startup <- err
 			return err
 		}
@@ -104,11 +82,7 @@ func (p *program) run(startup chan<- error) error {
 		defer mydb.Close()
 	}
 	if err := mydb.Ping(); err != nil {
-		if logger != nil {
-			logger.Errorf("database ping failed: %v", err)
-		} else {
-			log.Printf("database ping failed: %v", err)
-		}
+		logError("database ping failed: %v", err)
 		startup <- err
 		return err
 	}
@@ -126,11 +100,7 @@ func (p *program) run(startup chan<- error) error {
 		Logger:   serviceLoggerAdapter{logger: logger},
 	})
 	if err != nil {
-		if logger != nil {
-			logger.Errorf("failed to create router: %v", err)
-		} else {
-			log.Printf("failed to create router: %v", err)
-		}
+		logError("failed to create router: %v", err)
 		startup <- err
 		return err
 	}
@@ -140,11 +110,7 @@ func (p *program) run(startup chan<- error) error {
 	}
 	listener, err := net.Listen("tcp", settings.Port)
 	if err != nil {
-		if logger != nil {
-			logger.Errorf("failed to listen on %s: %v", settings.Port, err)
-		} else {
-			log.Printf("failed to listen on %s: %v", settings.Port, err)
-		}
+		logError("failed to listen on %s: %v", settings.Port, err)
 		startup <- err
 		return err
 	}
@@ -152,7 +118,7 @@ func (p *program) run(startup chan<- error) error {
 
 	go func() {
 		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server stopped: %v", err)
+			logError("HTTP server stopped: %v", err)
 		}
 	}()
 
@@ -160,22 +126,14 @@ func (p *program) run(startup chan<- error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		if logger != nil {
-			logger.Errorf("HTTP server shutdown failed: %v", err)
-		} else {
-			log.Printf("HTTP server shutdown failed: %v", err)
-		}
+		logError("HTTP server shutdown failed: %v", err)
 	}
 	return nil
 }
 
 func (p *program) Stop(s service.Service) error {
 	// Any work in Stop should be quick, usually a few seconds at most.
-	if logger != nil {
-		logger.Info("I'm Stopping!")
-	} else {
-		log.Printf("I'm Stopping!")
-	}
+	logInfo("I'm Stopping!")
 	close(p.exit)
 	return nil
 }
@@ -188,21 +146,45 @@ func ensureAuthToken() {
 		return
 	}
 	settings.AuthToken = rand.Text()
-	if logger != nil {
-		logger.Warningf("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
-	} else {
-		log.Printf("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
-	}
+	logWarning("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
 }
 
 type serviceLoggerAdapter struct {
 	logger service.Logger
 }
 
-func (a serviceLoggerAdapter) Printf(format string, v ...interface{}) {
+func (a serviceLoggerAdapter) Infof(format string, v ...interface{}) {
 	if a.logger != nil {
 		a.logger.Infof(format, v...)
 	} else {
 		log.Printf(format, v...)
 	}
+}
+
+func (a serviceLoggerAdapter) Warningf(format string, v ...interface{}) {
+	if a.logger != nil {
+		a.logger.Warningf(format, v...)
+	} else {
+		log.Printf("WARNING: "+format, v...)
+	}
+}
+
+func (a serviceLoggerAdapter) Errorf(format string, v ...interface{}) {
+	if a.logger != nil {
+		a.logger.Errorf(format, v...)
+	} else {
+		log.Printf("ERROR: "+format, v...)
+	}
+}
+
+func logInfo(format string, v ...interface{}) {
+	serviceLoggerAdapter{logger: logger}.Infof(format, v...)
+}
+
+func logWarning(format string, v ...interface{}) {
+	serviceLoggerAdapter{logger: logger}.Warningf(format, v...)
+}
+
+func logError(format string, v ...interface{}) {
+	serviceLoggerAdapter{logger: logger}.Errorf(format, v...)
 }
