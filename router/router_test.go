@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -520,5 +521,101 @@ func TestLoggerMiddleware_PersistenceFailureLogsError(t *testing.T) {
 	}
 	if !strings.Contains(errEntry.message, "failed to persist request log: simulated database failure") {
 		t.Errorf("Expected persistence error message, got %q", errEntry.message)
+	}
+}
+
+type recordingStore struct {
+	store.Store
+	calls    int
+	response string
+}
+
+func (r *recordingStore) LogRequest(status int, method, errStr, endpoint, createdAt, response, request string) error {
+	r.calls++
+	r.response = response
+	return nil
+}
+
+func TestLoggerMiddleware_RejectsOversizedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rs := &recordingStore{}
+	tl := &testLogger{}
+	called := false
+	handler := router.LoggerMiddleware(rs, tl)(func(c *gin.Context) error {
+		called = true
+		return nil
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/big", bytes.NewReader(make([]byte, 1<<20+1)))
+
+	router.WrapHandler(handler, "1.0.0")(c)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("Expected status %d, got %d", http.StatusRequestEntityTooLarge, w.Code)
+	}
+	if called {
+		t.Error("Expected handler not to be called for an oversized body")
+	}
+	if rs.calls != 0 {
+		t.Errorf("Expected oversized request not to be persisted, got %d LogRequest calls", rs.calls)
+	}
+	if len(tl.entries) != 1 || tl.entries[0].level != "WARN" {
+		t.Errorf("Expected one WARN log entry, got %v", tl.entries)
+	}
+}
+
+func TestLoggerMiddleware_AcceptsBodyAtLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rs := &recordingStore{}
+	var got int
+	handler := router.LoggerMiddleware(rs, &testLogger{})(func(c *gin.Context) error {
+		b, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			return err
+		}
+		got = len(b)
+		c.Status(http.StatusOK)
+		return nil
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/limit", bytes.NewReader(make([]byte, 1<<20)))
+
+	router.WrapHandler(handler, "1.0.0")(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+	if got != 1<<20 {
+		t.Errorf("Expected handler to read %d bytes, got %d", 1<<20, got)
+	}
+}
+
+func TestLoggerMiddleware_CapturesWriteString(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rs := &recordingStore{}
+	handler := router.LoggerMiddleware(rs, &testLogger{})(func(c *gin.Context) error {
+		c.Status(http.StatusOK)
+		_, err := c.Writer.WriteString(`{"via":"WriteString"}`)
+		return err
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/write-string", nil)
+
+	router.WrapHandler(handler, "1.0.0")(c)
+
+	if rs.response != `{"via":"WriteString"}` {
+		t.Errorf("Expected logged response %q, got %q", `{"via":"WriteString"}`, rs.response)
+	}
+	if w.Body.String() != `{"via":"WriteString"}` {
+		t.Errorf("Expected client response %q, got %q", `{"via":"WriteString"}`, w.Body.String())
 	}
 }
