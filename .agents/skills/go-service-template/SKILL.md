@@ -45,7 +45,7 @@ Use the repository implementation as the source of truth. The important boundari
 4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
 5. **Routes**: Declare routes as `Route` values in `router.GetRoutes(handler)`; `router.NewRouter(cfg)` applies middleware and registers them.
 6. **Authentication**: Protected routes fail closed. An empty `AUTH_TOKEN` must cause startup validation to fail when any route has `UseAuth: true`. Compare tokens with `subtle.ConstantTimeCompare`.
-7. **Assets**: Embedded assets are the default. Filesystem mode loads assets and templates from paths relative to the executable directory.
+7. **Assets**: Embedded assets are the default and require non-nil `cfg.Assets`. Filesystem mode loads assets and templates from paths relative to the executable directory.
 8. **Ownership**: Close database handles on constructor failure and service shutdown. Do not use `log.Fatal` in reusable service or library code.
 
 ## Storage
@@ -109,6 +109,19 @@ err := fmt.Errorf("load user: %w", ReturnWithHTTPStatus(baseErr, http.StatusNotF
 
 ## Routes and Middleware
 
+`router.Config` encapsulates dependencies and settings required to construct the router:
+
+```go
+type Config struct {
+    Handler  *handlers.Handler
+    Store    store.Store
+    Settings types.AppSettings
+    Assets   fs.FS
+    Version  string
+    Logger   Logger // Optional: defaults to standard logger when nil
+}
+```
+
 The route collection in `router/routes.go` is the extension point:
 
 ```go
@@ -128,12 +141,21 @@ func GetRoutes(handler *handlers.Handler) Routes {
 }
 ```
 
-`router.NewRouter(cfg)` accepts `router.Config`, obtains routes, validates that every `UseAuth` route has a token (failing fast at startup), applies authentication outside the logger, then registers `WrapHandler`:
+`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (failing fast at startup), applies authentication outside the logger, then registers `WrapHandler`:
 
 ```go
+if cfg.Handler == nil {
+    return nil, errors.New("handler must be provided")
+}
+
+routes := GetRoutes(cfg.Handler)
+
 for _, route := range routes {
     if route.UseAuth && cfg.Settings.AuthToken == "" {
         return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
+    }
+    if route.UseLogger && cfg.Store == nil {
+        return nil, fmt.Errorf("store must be configured for logged route %q", route.Name)
     }
 
     fn := route.HandlerFunc
