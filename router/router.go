@@ -56,7 +56,6 @@ type Config struct {
 	Settings types.AppSettings
 	Assets   fs.FS
 	Version  string
-	Routes   Routes // Optional: defaults to GetRoutes(Handler) when empty
 	Logger   Logger // Optional: defaults to standard logger when nil
 }
 
@@ -64,16 +63,14 @@ type Config struct {
 func NewRouter(cfg Config) (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 
+	if cfg.Handler == nil {
+		return nil, errors.New("handler must be provided")
+	}
+
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	routes := cfg.Routes
-	if len(routes) == 0 {
-		if cfg.Handler == nil {
-			return nil, errors.New("routes or handler must be provided")
-		}
-		routes = GetRoutes(cfg.Handler)
-	}
+	routes := GetRoutes(cfg.Handler)
 
 	l := cfg.Logger
 	if l == nil {

@@ -172,54 +172,65 @@ func TestWrapHandler_VersionHeader(t *testing.T) {
 	}
 }
 
-func TestCustomRoutes(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestGetRoutes(t *testing.T) {
+	mockStore := store.NewStorage(nil)
+	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
-	called := false
-	customRoutes := router.Routes{
-		router.Route{
-			Name:    "CustomRoute",
-			Method:  "GET",
-			Pattern: "/custom",
-			HandlerFunc: func(c *gin.Context) error {
-				called = true
-				c.String(http.StatusOK, "custom response")
-				return nil
-			},
-		},
+	routes := router.GetRoutes(h)
+	if len(routes) == 0 {
+		t.Fatal("Expected GetRoutes to return route definitions, got empty")
 	}
 
-	r, err := router.NewRouter(router.Config{
-		Routes:  customRoutes,
-		Assets:  fstest.MapFS{},
-		Version: "v1.0.0",
-	})
-	if err != nil {
-		t.Fatalf("NewRouter with custom routes failed: %v", err)
+	expectedRoutes := map[string]struct {
+		method    string
+		pattern   string
+		useLogger bool
+		useAuth   bool
+	}{
+		"HealthCheck": {method: "GET", pattern: "/", useLogger: false, useAuth: false},
+		"Ping":        {method: "GET", pattern: "/ping/:argument", useLogger: true, useAuth: false},
+		"Pong":        {method: "POST", pattern: "/pong", useLogger: true, useAuth: true},
+		"GetLogs":     {method: "GET", pattern: "/logs/:from/:to", useLogger: false, useAuth: true},
 	}
 
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/custom", nil)
-	r.ServeHTTP(w, req)
-
-	if !called {
-		t.Errorf("Expected custom handler to be called")
+	if len(routes) != len(expectedRoutes) {
+		t.Errorf("Expected %d routes, got %d", len(expectedRoutes), len(routes))
 	}
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+
+	for _, route := range routes {
+		expected, exists := expectedRoutes[route.Name]
+		if !exists {
+			t.Errorf("Unexpected route %q", route.Name)
+			continue
+		}
+		if route.Method != expected.method {
+			t.Errorf("Route %q: expected method %q, got %q", route.Name, expected.method, route.Method)
+		}
+		if route.Pattern != expected.pattern {
+			t.Errorf("Route %q: expected pattern %q, got %q", route.Name, expected.pattern, route.Pattern)
+		}
+		if route.UseLogger != expected.useLogger {
+			t.Errorf("Route %q: expected UseLogger=%v, got %v", route.Name, expected.useLogger, route.UseLogger)
+		}
+		if route.UseAuth != expected.useAuth {
+			t.Errorf("Route %q: expected UseAuth=%v, got %v", route.Name, expected.useAuth, route.UseAuth)
+		}
+		if route.HandlerFunc == nil {
+			t.Errorf("Route %q: HandlerFunc should not be nil", route.Name)
+		}
 	}
 }
 
-func TestNewRouter_RequiresRoutesOrHandler(t *testing.T) {
+func TestNewRouter_RequiresHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	_, err := router.NewRouter(router.Config{
 		Version: "v1.0.0",
 	})
 	if err == nil {
-		t.Fatalf("Expected NewRouter to fail when neither Routes nor Handler is provided, got nil")
+		t.Fatalf("Expected NewRouter to fail when Handler is not provided, got nil")
 	}
-	expected := "routes or handler must be provided"
+	expected := "handler must be provided"
 	if err.Error() != expected {
 		t.Errorf("Expected error %q, got %q", expected, err.Error())
 	}
@@ -248,49 +259,17 @@ func TestStartupLoggerStoreValidation(t *testing.T) {
 	}
 }
 
-func TestNewRouter_LoggedRouteRequiresStore(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	customRoutes := router.Routes{
-		router.Route{
-			Name:        "LoggedRoute",
-			Method:      "GET",
-			Pattern:     "/logged",
-			HandlerFunc: func(c *gin.Context) error { return nil },
-			UseLogger:   true,
-		},
-	}
-
-	_, err := router.NewRouter(router.Config{
-		Routes:  customRoutes,
-		Store:   nil,
-		Version: "v1.0.0",
-	})
-	if err == nil {
-		t.Fatalf("Expected NewRouter to fail when logged route has no Store, got nil")
-	}
-	expected := `store must be configured for logged route "LoggedRoute"`
-	if err.Error() != expected {
-		t.Errorf("Expected error %q, got %q", expected, err.Error())
-	}
-}
-
 func TestNewRouter_EmbeddedModeNilAssetsReturnsError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	customRoutes := router.Routes{
-		router.Route{
-			Name:        "TestRoute",
-			Method:      "GET",
-			Pattern:     "/test",
-			HandlerFunc: func(c *gin.Context) error { return nil },
-		},
-	}
+	mockStore := store.NewStorage(nil)
+	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	_, err := router.NewRouter(router.Config{
-		Routes:   customRoutes,
+		Handler:  h,
+		Store:    mockStore,
 		Assets:   nil,
-		Settings: types.AppSettings{UseFileSystem: false},
+		Settings: types.AppSettings{AuthToken: "secret-token", UseFileSystem: false},
 		Version:  "v1.0.0",
 	})
 	if err == nil {
@@ -305,19 +284,14 @@ func TestNewRouter_EmbeddedModeNilAssetsReturnsError(t *testing.T) {
 func TestNewRouter_FileSystemModeNilAssetsSucceeds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	customRoutes := router.Routes{
-		router.Route{
-			Name:        "TestRoute",
-			Method:      "GET",
-			Pattern:     "/test",
-			HandlerFunc: func(c *gin.Context) error { return nil },
-		},
-	}
+	mockStore := store.NewStorage(nil)
+	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	r, err := router.NewRouter(router.Config{
-		Routes:   customRoutes,
+		Handler:  h,
+		Store:    mockStore,
 		Assets:   nil,
-		Settings: types.AppSettings{UseFileSystem: true},
+		Settings: types.AppSettings{AuthToken: "secret-token", UseFileSystem: true},
 		Version:  "v1.0.0",
 	})
 	if err != nil {
