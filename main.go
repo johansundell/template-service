@@ -4,6 +4,7 @@ import (
 	"embed"
 	"flag"
 	"log"
+	"os"
 
 	"github.com/kardianos/service"
 )
@@ -30,7 +31,7 @@ func main() {
 		Description: nameOfService,
 	}
 
-	prg := &program{}
+	prg := newProgram()
 	s, err := service.New(prg, svcConfig)
 	if err != nil {
 		log.Fatal(err)
@@ -58,6 +59,15 @@ func main() {
 		}
 		return
 	}
+	// If the HTTP server stops on its own, exit non-zero so the service
+	// manager restarts the service; Run would otherwise keep waiting for a
+	// stop signal while nothing is serving.
+	go func() {
+		err := <-prg.failed
+		logger.Errorf("service stopped unexpectedly: %v", err)
+		os.Exit(1)
+	}()
+
 	err = s.Run()
 	if err != nil {
 		logger.Error(err)

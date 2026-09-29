@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -21,12 +22,23 @@ import (
 var logger service.Logger
 
 type program struct {
-	exit chan struct{}
+	exit     chan struct{}
+	done     chan struct{} // closed when run returns; runErr holds its result
+	runErr   error
+	stopOnce sync.Once
+	// failed receives the error when the HTTP server stops on its own after a
+	// successful start, so main can exit and let the service manager restart us.
+	failed chan error
 }
 
-// injectable constructors so tests can mock DB initialization
+func newProgram() *program {
+	return &program{failed: make(chan error, 1)}
+}
+
+// injectable constructors so tests can mock DB initialization and listening
 var newMySQLStorage = store.NewMySQLStorage
 var newSqliteDatabase = store.NewSqliteDatabase
+var netListen = net.Listen
 
 func (p *program) Start(s service.Service) error {
 	loadSettings()
@@ -39,12 +51,20 @@ func (p *program) Start(s service.Service) error {
 	} else {
 		logInfo("Running under service manager.")
 	}
-	p.exit = make(chan struct{})
+	return p.startWorker()
+}
 
-	// Start should not block while the service is serving requests, but it must
-	// report initialization failures to the service manager.
+// startWorker runs the service worker in the background. Start should not
+// block while the service is serving requests, but it must report
+// initialization failures to the service manager.
+func (p *program) startWorker() error {
+	p.exit = make(chan struct{})
+	p.done = make(chan struct{})
 	startup := make(chan error, 1)
-	go p.run(startup)
+	go func() {
+		p.runErr = p.run(startup)
+		close(p.done)
+	}()
 	return <-startup
 }
 
@@ -112,34 +132,48 @@ func (p *program) run(startup chan<- error) error {
 		Handler: http.TimeoutHandler(routerEngine, time.Duration(settings.Timeout)*time.Second, "Timeout"),
 		Addr:    settings.Port,
 	}
-	listener, err := net.Listen("tcp", settings.Port)
+	listener, err := netListen("tcp", settings.Port)
 	if err != nil {
 		logError("failed to listen on %s: %v", settings.Port, err)
 		startup <- err
 		return err
 	}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(listener) }()
 	startup <- nil
 
-	go func() {
-		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			logError("HTTP server stopped: %v", err)
+	select {
+	case err := <-serveErr:
+		logError("HTTP server stopped: %v", err)
+		select {
+		case p.failed <- err:
+		default:
 		}
-	}()
+		return err
+	case <-p.exit:
+	}
 
-	<-p.exit
+	// The shutdown deadline is shorter than TIMEOUT (default 15s), so a slow
+	// request can still be cut off when the service stops.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		logError("HTTP server shutdown failed: %v", err)
+		return err
 	}
 	return nil
 }
 
+// Stop waits for graceful shutdown to finish: once it returns,
+// kardianos/service returns from Run and the process exits.
 func (p *program) Stop(s service.Service) error {
-	// Any work in Stop should be quick, usually a few seconds at most.
 	logInfo("I'm Stopping!")
-	close(p.exit)
-	return nil
+	if p.done == nil {
+		return nil
+	}
+	p.stopOnce.Do(func() { close(p.exit) })
+	<-p.done
+	return p.runErr
 }
 
 // ensureAuthToken generates a temporary random token when AUTH_TOKEN is not
