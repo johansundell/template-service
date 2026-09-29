@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -324,5 +325,92 @@ func TestNewRouter_FileSystemModeNilAssetsSucceeds(t *testing.T) {
 	}
 	if r == nil {
 		t.Fatal("Expected non-nil router")
+	}
+}
+
+type testLogger struct {
+	messages []string
+}
+
+func (tl *testLogger) Printf(format string, v ...interface{}) {
+	tl.messages = append(tl.messages, fmt.Sprintf(format, v...))
+}
+
+func TestNewRouter_InjectedLogger(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	settings := types.AppSettings{
+		AuthToken: "secret-token",
+	}
+
+	tmpFile := filepath.Join(t.TempDir(), "test_router_logger.db")
+	db, err := store.NewSqliteDatabase(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	s := store.NewStorage(db)
+	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
+
+	tl := &testLogger{}
+	r, err := router.NewRouter(router.Config{
+		Handler:  h,
+		Store:    s,
+		Settings: settings,
+		Assets:   fstest.MapFS{},
+		Version:  "dev",
+		Logger:   tl,
+	})
+	if err != nil {
+		t.Fatalf("NewRouter failed: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "secret-token")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	if len(tl.messages) == 0 {
+		t.Errorf("Expected injected logger to receive log messages, got none")
+	}
+
+	found := false
+	for _, msg := range tl.messages {
+		if strings.Contains(msg, "request logged: POST /pong 200") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected log containing 'request logged: POST /pong 200', got %v", tl.messages)
+	}
+}
+
+func TestAuthMiddleware_InjectedLoggerOnEmptyToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tl := &testLogger{}
+	mw := router.AuthMiddleware(nil, "", tl)
+	handler := mw(func(c *gin.Context) error { return nil })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/protected", nil)
+
+	err := handler(c)
+	if err == nil {
+		t.Fatalf("Expected error from AuthMiddleware with empty token, got nil")
+	}
+
+	if len(tl.messages) == 0 {
+		t.Errorf("Expected injected logger to log warning on empty token")
+	} else if !strings.Contains(tl.messages[0], "AUTH_TOKEN is not set") {
+		t.Errorf("Expected warning message, got %q", tl.messages[0])
 	}
 }

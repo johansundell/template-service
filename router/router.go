@@ -38,6 +38,17 @@ type Route struct {
 // Routes is a collection of Route definitions
 type Routes []Route
 
+// Logger defines a logging interface for router middleware
+type Logger interface {
+	Printf(format string, v ...interface{})
+}
+
+type stdLogger struct{}
+
+func (stdLogger) Printf(format string, v ...interface{}) {
+	log.Printf(format, v...)
+}
+
 // Config contains the dependencies and settings required to construct a router
 type Config struct {
 	Handler  *handlers.Handler
@@ -46,6 +57,7 @@ type Config struct {
 	Assets   fs.FS
 	Version  string
 	Routes   Routes // Optional: defaults to GetRoutes(Handler) when empty
+	Logger   Logger // Optional: defaults to standard logger when nil
 }
 
 // NewRouter creates a new web handler with middleware and registered routes
@@ -63,6 +75,11 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		routes = GetRoutes(cfg.Handler)
 	}
 
+	l := cfg.Logger
+	if l == nil {
+		l = stdLogger{}
+	}
+
 	for _, route := range routes {
 		if route.UseAuth && cfg.Settings.AuthToken == "" {
 			return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
@@ -76,13 +93,13 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		// Apply Logger Middleware first (innermost), so it only runs after auth passes.
 		// Wrapping order is inside-out: the last wrapper applied is the first to execute.
 		if route.UseLogger {
-			fn = LoggerMiddleware(cfg.Store)(fn)
+			fn = LoggerMiddleware(cfg.Store, l)(fn)
 		}
 
 		// Apply Auth Middleware second (outermost), so it executes first and rejects
 		// unauthenticated requests before the logger reads or stores the body.
 		if route.UseAuth {
-			fn = AuthMiddleware(cfg.Store, cfg.Settings.AuthToken)(fn)
+			fn = AuthMiddleware(cfg.Store, cfg.Settings.AuthToken, l)(fn)
 		}
 
 		router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
@@ -99,11 +116,18 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 }
 
 // AuthMiddleware returns a middleware that validates the Authorization header
-func AuthMiddleware(s store.Store, authToken string) func(HandlerFuncWithError) HandlerFuncWithError {
+func AuthMiddleware(s store.Store, authToken string, loggers ...Logger) func(HandlerFuncWithError) HandlerFuncWithError {
+	var l Logger
+	if len(loggers) > 0 && loggers[0] != nil {
+		l = loggers[0]
+	}
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 
 			if authToken == "" {
+				if l != nil {
+					l.Printf("WARNING: AUTH_TOKEN is not set.")
+				}
 				return httperror.ReturnWithHTTPStatus(
 					errors.New("authentication is not configured"),
 					http.StatusInternalServerError,
@@ -167,8 +191,12 @@ func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
 	}
 }
 
-// LoggerMiddleware logs requests and responses using the provided Store
-func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithError {
+// LoggerMiddleware logs requests and responses using the provided Store and Logger
+func LoggerMiddleware(s store.Store, loggers ...Logger) func(HandlerFuncWithError) HandlerFuncWithError {
+	var l Logger = stdLogger{}
+	if len(loggers) > 0 && loggers[0] != nil {
+		l = loggers[0]
+	}
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 			// Read the request body once
@@ -178,7 +206,7 @@ func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithE
 				requestBody, readErr = io.ReadAll(c.Request.Body)
 				c.Request.Body.Close()
 				if readErr != nil {
-					log.Printf("failed to read request body: %v", readErr)
+					l.Printf("failed to read request body: %v", readErr)
 				}
 
 				// Reset the request body so it can be read again
@@ -218,9 +246,9 @@ func LoggerMiddleware(s store.Store) func(HandlerFuncWithError) HandlerFuncWithE
 
 			// Persist request log; if persistence fails, record the error to std log
 			if persistErr := s.LogRequest(usageLog.Status, usageLog.Method, usageLog.Error, usageLog.Endpoint, usageLog.CreatedAt.Format(time.RFC3339), string(usageLog.Response), string(usageLog.Request)); persistErr != nil {
-				log.Printf("failed to persist request log: %v", persistErr)
+				l.Printf("failed to persist request log: %v", persistErr)
 			} else {
-				log.Printf("request logged: %s %s %d", usageLog.Method, usageLog.Endpoint, usageLog.Status)
+				l.Printf("request logged: %s %s %d", usageLog.Method, usageLog.Endpoint, usageLog.Status)
 			}
 
 			return err

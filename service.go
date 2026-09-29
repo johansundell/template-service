@@ -123,6 +123,7 @@ func (p *program) run(startup chan<- error) error {
 		Settings: settings,
 		Assets:   embededFiles,
 		Version:  Version,
+		Logger:   serviceLoggerAdapter{logger: logger},
 	})
 	if err != nil {
 		if logger != nil {
@@ -191,5 +192,17 @@ func ensureAuthToken() {
 		logger.Warningf("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
 	} else {
 		log.Printf("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
+	}
+}
+
+type serviceLoggerAdapter struct {
+	logger service.Logger
+}
+
+func (a serviceLoggerAdapter) Printf(format string, v ...interface{}) {
+	if a.logger != nil {
+		a.logger.Infof(format, v...)
+	} else {
+		log.Printf(format, v...)
 	}
 }
