@@ -23,9 +23,11 @@ compile:
 install:
 	go install -ldflags "-X main.Version=$(VERSION)"
 
+# Installs the release tools into $(go env GOPATH)/bin (or GOBIN), which must
+# be on PATH for compile, dist and release. go get no longer installs binaries.
 deps:
-	go get github.com/c4milo/github-release
-	go get github.com/mitchellh/gox
+	go install github.com/c4milo/github-release@latest
+	go install github.com/mitchellh/gox@latest
 
 dist: compile
 	$(eval FILES := $(shell ls build))
