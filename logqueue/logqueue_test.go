@@ -303,3 +303,18 @@ func TestQueue_EnqueueAfterCloseDoesNotPanic(t *testing.T) {
 		t.Errorf("expected a second Close to succeed, got %v", err)
 	}
 }
+
+func TestQueue_LogsBatchesOnlyWhenAsked(t *testing.T) {
+	for _, logBatches := range []bool{false, true} {
+		tl := &testLogger{}
+		fs := &fakeStore{}
+		q := startQueue(t, fs, tl, 1000, func(q *Queue) { q.batchSize = 1; q.logBatches = logBatches })
+		q.Enqueue(entry(0))
+		waitFor(t, "batch written", func() bool { _, total, _ := fs.snapshot(); return total == 1 })
+		q.Close(context.Background())
+
+		if got := len(tl.find("INFO", "persisted 1 request log entries")); got != map[bool]int{false: 0, true: 1}[logBatches] {
+			t.Errorf("logBatches=%v: expected %d persisted lines, got %d", logBatches, map[bool]int{false: 0, true: 1}[logBatches], got)
+		}
+	}
+}

@@ -138,3 +138,39 @@ func TestNewHandler_RequiresTemplatesInEmbeddedMode(t *testing.T) {
 		t.Errorf("expected filesystem mode to work without an embedded FS, got %v", err)
 	}
 }
+
+func TestHealthCheck_ContentNegotiation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, err := store.NewSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create db: %v", err)
+	}
+	defer s.Close()
+	mockFS := fstest.MapFS{
+		"tmpl/base.html":   {Data: []byte(`{{define "base"}}{{template "content" .}}{{end}}`)},
+		"tmpl/health.html": {Data: []byte(`{{define "content"}}Database: {{.dbStatus}}{{end}}`)},
+	}
+	h := mustNewHandler(t, s, false, mockFS, "test-service", "v1.0")
+
+	for accept, wantJSON := range map[string]bool{
+		"application/json":                  true,
+		"application/json, text/plain, */*": true,
+		"":                                  false,
+		"*/*":                               false,
+		"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8": false,
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("GET", "/", nil)
+		if accept != "" {
+			c.Request.Header.Set("Accept", accept)
+		}
+		if err := h.HealthCheck(c); err != nil {
+			t.Fatalf("Accept %q: expected no error, got %v", accept, err)
+		}
+		isJSON := strings.HasPrefix(w.Body.String(), "{")
+		if isJSON != wantJSON {
+			t.Errorf("Accept %q: expected JSON=%v, got body %q", accept, wantJSON, w.Body.String())
+		}
+	}
+}

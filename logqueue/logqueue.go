@@ -33,9 +33,10 @@ type Logger interface {
 // Queue buffers request log entries and writes them to a store in batches
 // from a single worker goroutine.
 type Queue struct {
-	store   store.Store
-	log     Logger
-	entries chan types.UsageLog
+	store      store.Store
+	log        Logger
+	logBatches bool // log each successfully written batch (Info)
+	entries    chan types.UsageLog
 
 	stopping chan struct{} // closed by Close: drain and exit
 	drainCtx context.Context
@@ -55,9 +56,12 @@ type Queue struct {
 	now           func() time.Time
 }
 
-// New starts a queue that writes to s and reports through l.
-func New(s store.Store, l Logger) *Queue {
+// New starts a queue that writes to s and reports through l. Drops and
+// failures are always logged; each successfully written batch only when
+// logBatches is true (the service passes DEBUG).
+func New(s store.Store, l Logger, logBatches bool) *Queue {
 	q := newQueue(s, l, queueSize)
+	q.logBatches = logBatches
 	go q.run()
 	return q
 }
@@ -218,7 +222,9 @@ func (q *Queue) write(ctx context.Context, batch []types.UsageLog) bool {
 		err := q.store.LogRequests(attemptCtx, batch)
 		cancel()
 		if err == nil {
-			q.log.Infof("persisted %d request log entries", len(batch))
+			if q.logBatches {
+				q.log.Infof("persisted %d request log entries", len(batch))
+			}
 			return true
 		}
 		if ctx.Err() != nil {

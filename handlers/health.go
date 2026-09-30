@@ -24,7 +24,9 @@ func (h *Handler) HealthCheck(c *gin.Context) error {
 		"dbStatus": dbStatus,
 	}
 
-	if c.GetHeader("Accept") == "application/json" {
+	// JSON when the client prefers it (Accept), HTML otherwise, including
+	// for browsers and requests without an Accept header.
+	if c.NegotiateFormat(gin.MIMEHTML, gin.MIMEJSON) == gin.MIMEJSON {
 		c.JSON(status, data)
 		return nil
 	}
