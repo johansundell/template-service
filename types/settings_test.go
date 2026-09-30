@@ -12,19 +12,19 @@ func TestAppSettingsValidate(t *testing.T) {
 		s       AppSettings
 		wantErr bool
 	}{
-		{"valid defaults", AppSettings{Port: ":8080", Timeout: 10, Storage: StorageSQLite}, false},
-		{"missing storage", AppSettings{Port: ":8080", Timeout: 10}, true},
-		{"unknown storage", AppSettings{Port: ":8080", Timeout: 10, Storage: "postgres"}, true},
-		{"missing port", AppSettings{Port: "", Timeout: 10, Storage: StorageSQLite}, true},
+		{"valid defaults", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageSQLite}, false},
+		{"missing storage", AppSettings{Port: ":8080", Timeout: 10 * time.Second}, true},
+		{"unknown storage", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: "postgres"}, true},
+		{"missing port", AppSettings{Port: "", Timeout: 10 * time.Second, Storage: StorageSQLite}, true},
 		{"invalid timeout", AppSettings{Port: ":8080", Timeout: 0, Storage: StorageSQLite}, true},
-		{"mysql missing fields", AppSettings{Port: ":8080", Timeout: 10, Storage: StorageMySQL, MySqlSettings: struct {
+		{"mysql missing fields", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageMySQL, MySqlSettings: struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
 			Host     string `json:"host"`
 			Port     string `json:"port"`
 			Database string `json:"database"`
 		}{}}, true},
-		{"mysql provided", AppSettings{Port: ":8080", Timeout: 10, Storage: StorageMySQL, MySqlSettings: struct {
+		{"mysql provided", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageMySQL, MySqlSettings: struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
 			Host     string `json:"host"`
@@ -45,7 +45,7 @@ func TestAppSettingsValidate(t *testing.T) {
 
 func TestAppSettingsValidate_FileMaker(t *testing.T) {
 	valid := func() AppSettings {
-		return AppSettings{Port: ":8080", Timeout: 10, Storage: StorageFileMaker, FileMaker: FileMakerSettings{
+		return AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageFileMaker, FileMaker: FileMakerSettings{
 			Host: "https://fms.example.com", Database: "Logging", Username: "u", Password: "p", Timeout: 10 * time.Second, LogTable: "Logs",
 		}}
 	}

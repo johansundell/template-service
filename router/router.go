@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/httperror"
+	"github.com/johansundell/template-service/logging"
 	"github.com/johansundell/template-service/types"
 	"github.com/johansundell/template-service/utils"
 )
@@ -37,36 +37,8 @@ type Route struct {
 // Routes is a collection of Route definitions
 type Routes []Route
 
-// Logger defines a leveled logging interface for router middleware
-type Logger interface {
-	Infof(format string, v ...interface{})
-	Warningf(format string, v ...interface{})
-	Errorf(format string, v ...interface{})
-}
-
-// StdLogger writes to the standard library logger, with a level prefix for
-// warnings and errors.
-type StdLogger struct{}
-
-func (StdLogger) Infof(format string, v ...interface{}) {
-	log.Printf(format, v...)
-}
-
-func (StdLogger) Warningf(format string, v ...interface{}) {
-	log.Printf("WARNING: "+format, v...)
-}
-
-func (StdLogger) Errorf(format string, v ...interface{}) {
-	log.Printf("ERROR: "+format, v...)
-}
-
-// orStdLogger returns l, or StdLogger when l is nil.
-func orStdLogger(l Logger) Logger {
-	if l == nil {
-		return StdLogger{}
-	}
-	return l
-}
+// Logger is the leveled logger middleware reports to.
+type Logger = logging.Logger
 
 // LogSink receives request log entries. It must not block; logqueue.Queue
 // writes them to the store in the background.
@@ -97,7 +69,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 
 	routes := GetRoutes(cfg.Handler)
 
-	l := orStdLogger(cfg.Logger)
+	l := logging.OrStd(cfg.Logger)
 	debug := cfg.Settings.Debug
 	if debug {
 		router.Use(AccessLog(l))
@@ -145,7 +117,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 // client IP) through l. NewRouter adds it when DEBUG=true. The query string
 // is left out so tokens in URLs don't end up in the log.
 func AccessLog(l Logger) gin.HandlerFunc {
-	l = orStdLogger(l)
+	l = logging.OrStd(l)
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
@@ -155,7 +127,7 @@ func AccessLog(l Logger) gin.HandlerFunc {
 
 // AuthMiddleware returns a middleware that validates the Authorization header
 func AuthMiddleware(authToken string, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
-	l = orStdLogger(l)
+	l = logging.OrStd(l)
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 
@@ -233,7 +205,7 @@ const maxRequestBodyBytes = 1 << 20
 // LoggerMiddleware captures each request and response and hands the entry to
 // sink; persisting it happens in the background.
 func LoggerMiddleware(sink LogSink, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
-	l = orStdLogger(l)
+	l = logging.OrStd(l)
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 			// Read the request body once, capped so large requests can't

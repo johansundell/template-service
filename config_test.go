@@ -218,3 +218,29 @@ func TestLoadSettings_FileMaker(t *testing.T) {
 		t.Errorf("expected an invalid FMS_TIMEOUT to become 0 for Validate to reject, got %v", fm.Timeout)
 	}
 }
+
+func TestLoadSettings_Timeout(t *testing.T) {
+	t.Setenv("TIMEOUT", "")
+	load := func(content string) time.Duration {
+		tmpEnv, err := os.CreateTemp("", ".env.*")
+		if err != nil {
+			t.Fatalf("Failed to create temp env file: %v", err)
+		}
+		defer os.Remove(tmpEnv.Name())
+		tmpEnv.WriteString(content)
+		tmpEnv.Close()
+		loadSettings(tmpEnv.Name())
+		return settings.Timeout
+	}
+	defer loadSettings()
+
+	if got := load("PORT=:9999\n"); got != 15*time.Second {
+		t.Errorf("expected default TIMEOUT 15s, got %v", got)
+	}
+	if got := load("TIMEOUT=20\n"); got != 20*time.Second {
+		t.Errorf("expected TIMEOUT=20 to mean 20s, got %v", got)
+	}
+	if got := load("TIMEOUT=soon\n"); got != 0 {
+		t.Errorf("expected an invalid TIMEOUT to become 0 for Validate to reject, got %v", got)
+	}
+}

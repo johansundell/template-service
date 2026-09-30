@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/johansundell/template-service/types"
 )
@@ -9,7 +10,7 @@ import (
 func TestAppSettingsValidate_MySQLMissingRequiredFields(t *testing.T) {
 	settings := types.AppSettings{
 		Port:    ":8080",
-		Timeout: 15,
+		Timeout: 15 * time.Second,
 		Storage: types.StorageMySQL,
 	}
 

@@ -2,6 +2,8 @@
 
 `fmsodata` is a Go client library for the Claris FileMaker OData API. It provides a simple and idiomatic way to interact with FileMaker databases, supporting CRUD operations, script execution, and container data handling.
 
+`fmsodata` is a general-purpose FileMaker OData client for services built from this template: tables, indexes, records, scripts and container fields. The template's own FileMaker log store (`store.FileMakerStore`) uses only part of it (`GetRecords`, `CreateRecords`, `Ping`); the rest is there for your solution's own data.
+
 ## Features
 
 -   **CRUD Operations**: Create, Read, Update, and Delete records.

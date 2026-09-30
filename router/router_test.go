@@ -586,9 +586,9 @@ func TestLoggerMiddleware_CapturesWriteString(t *testing.T) {
 	}
 }
 
-func mustNewHandler(t *testing.T, s store.Store, ufs bool, fsys fs.FS, name, version string) *handlers.Handler {
+func mustNewHandler(t *testing.T, s store.Store, useFileSystem bool, embedded fs.FS, name, version string) *handlers.Handler {
 	t.Helper()
-	h, err := handlers.NewHandler(s, ufs, fsys, name, version)
+	h, err := handlers.NewHandler(s, useFileSystem, embedded, name, version)
 	if err != nil {
 		t.Fatalf("NewHandler failed: %v", err)
 	}

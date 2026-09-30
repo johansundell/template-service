@@ -121,9 +121,9 @@ func TestHealthCheck_StorageDownReturns503(t *testing.T) {
 	}
 }
 
-func mustNewHandler(t *testing.T, s store.Store, ufs bool, fsys fs.FS, name, version string) *Handler {
+func mustNewHandler(t *testing.T, s store.Store, useFileSystem bool, embedded fs.FS, name, version string) *Handler {
 	t.Helper()
-	h, err := NewHandler(s, ufs, fsys, name, version)
+	h, err := NewHandler(s, useFileSystem, embedded, name, version)
 	if err != nil {
 		t.Fatalf("NewHandler failed: %v", err)
 	}

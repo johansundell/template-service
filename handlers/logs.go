@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -26,7 +27,7 @@ type logsPage struct {
 	Next    *string          `json:"next"`
 }
 
-func (h *Handler) GetLogsHandler(c *gin.Context) error {
+func (h *Handler) GetLogs(c *gin.Context) error {
 	// Dates are whole UTC days: from 00:00Z up to, not including, the day after to.
 	fromStr := c.Param("from")
 	toStr := c.Param("to")
@@ -45,7 +46,7 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 	if err != nil {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusBadRequest)
 	}
-	offset, err := queryInt(c, "offset", 0, 0, -1)
+	offset, err := queryInt(c, "offset", 0, 0, math.MaxInt)
 	if err != nil {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusBadRequest)
 	}
@@ -73,19 +74,16 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 	return nil
 }
 
-// queryInt reads an integer query parameter, returning def when it is absent.
-// max < 0 means no upper bound.
+// queryInt reads an integer query parameter in [min, max], returning def
+// when it is absent.
 func queryInt(c *gin.Context, name string, def, min, max int) (int, error) {
 	raw, ok := c.GetQuery(name)
 	if !ok {
 		return def, nil
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < min || (max >= 0 && n > max) {
-		if max >= 0 {
-			return 0, fmt.Errorf("%s must be an integer from %d to %d", name, min, max)
-		}
-		return 0, fmt.Errorf("%s must be an integer of at least %d", name, min)
+	if err != nil || n < min || n > max {
+		return 0, fmt.Errorf("%s must be an integer from %d to %d", name, min, max)
 	}
 	return n, nil
 }

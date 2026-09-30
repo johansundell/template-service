@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 	cases := []struct {
@@ -12,7 +15,7 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 			name: "mysql enabled missing required fields",
 			s: AppSettings{
 				Port:    ":8080",
-				Timeout: 10,
+				Timeout: 10 * time.Second,
 				Storage: StorageMySQL,
 				MySqlSettings: struct {
 					Username string `json:"username"`
@@ -28,7 +31,7 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 			name: "mysql enabled with required fields",
 			s: AppSettings{
 				Port:    ":8080",
-				Timeout: 10,
+				Timeout: 10 * time.Second,
 				Storage: StorageMySQL,
 				MySqlSettings: struct {
 					Username string `json:"username"`

@@ -49,9 +49,11 @@ func loadSettings(filenames ...string) {
 
 	timeoutStr := os.Getenv("TIMEOUT")
 	if timeoutStr != "" {
-		settings.Timeout, _ = strconv.Atoi(timeoutStr)
+		// TIMEOUT is whole seconds; an invalid value becomes 0, which Validate rejects.
+		seconds, _ := strconv.Atoi(timeoutStr)
+		settings.Timeout = time.Duration(seconds) * time.Second
 	} else {
-		settings.Timeout = 15
+		settings.Timeout = 15 * time.Second
 	}
 
 	settings.Storage = strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE")))

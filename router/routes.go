@@ -32,7 +32,7 @@ func GetRoutes(handler *handlers.Handler) Routes {
 			Name:        "GetLogs",
 			Method:      "GET",
 			Pattern:     "/logs/:from/:to",
-			HandlerFunc: handler.GetLogsHandler,
+			HandlerFunc: handler.GetLogs,
 			UseAuth:     true,
 		},
 	}

@@ -27,14 +27,14 @@ import (
 )
 
 func TestFileMakerIntegration(t *testing.T) {
-	cfg := FileMakerConfig{
+	cfg := types.FileMakerSettings{
 		Host:     os.Getenv("FMS_TEST_HOST"),
 		Database: os.Getenv("FMS_TEST_DATABASE"),
 		Username: os.Getenv("FMS_TEST_USERNAME"),
 		Password: os.Getenv("FMS_TEST_PASSWORD"),
 		CAFile:   os.Getenv("FMS_TEST_CA_FILE"),
 		Timeout:  30 * time.Second,
-		Table:    fmt.Sprintf("LogsTest_%d", time.Now().Unix()),
+		LogTable: fmt.Sprintf("LogsTest_%d", time.Now().Unix()),
 	}
 	if cfg.Host == "" || cfg.Database == "" || cfg.Username == "" {
 		t.Skip("set FMS_TEST_HOST, FMS_TEST_DATABASE, FMS_TEST_USERNAME and FMS_TEST_PASSWORD to run")
@@ -50,7 +50,7 @@ func TestFileMakerIntegration(t *testing.T) {
 		Timeout: cfg.Timeout, TLSConfig: tlsConfig,
 	})
 	table := fmsodata.TableDefinition{
-		TableName: cfg.Table,
+		TableName: cfg.LogTable,
 		Fields: []fmsodata.FieldDefinition{
 			{Name: "ID", Type: "NUMERIC"},
 			{Name: "Status", Type: "NUMERIC"},
@@ -63,11 +63,11 @@ func TestFileMakerIntegration(t *testing.T) {
 		},
 	}
 	if err := admin.CreateTable(ctx, table); err != nil {
-		t.Fatalf("create table %s: %v", cfg.Table, err)
+		t.Fatalf("create table %s: %v", cfg.LogTable, err)
 	}
 	t.Cleanup(func() {
-		if err := admin.DeleteTable(context.Background(), cfg.Table); err != nil {
-			t.Errorf("delete table %s: %v", cfg.Table, err)
+		if err := admin.DeleteTable(context.Background(), cfg.LogTable); err != nil {
+			t.Errorf("delete table %s: %v", cfg.LogTable, err)
 		}
 	})
 

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/johansundell/template-service/handlers"
+	"github.com/johansundell/template-service/logging"
 	"github.com/johansundell/template-service/logqueue"
 	"github.com/johansundell/template-service/router"
 	"github.com/johansundell/template-service/store"
@@ -42,14 +42,14 @@ var newSQLiteStore = func(path string) (store.Store, error) {
 	}
 	return s, nil
 }
-var newMySQLStore = func(cfg mysql.Config) (store.Store, error) {
+var newMySQLStore = func(cfg types.MySQLSettings) (store.Store, error) {
 	s, err := store.NewMySQL(cfg)
 	if err != nil {
 		return nil, err
 	}
 	return s, nil
 }
-var newFileMakerStore = func(ctx context.Context, cfg store.FileMakerConfig) (store.Store, error) {
+var newFileMakerStore = func(ctx context.Context, cfg types.FileMakerSettings) (store.Store, error) {
 	s, err := store.NewFileMaker(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (p *program) run(startup chan<- error) error {
 		logQueue.Close(ctx)
 	}()
 
-	handler, err := handlers.NewHandler(st, settings.UseFileSystem, tpls, nameOfService, Version)
+	handler, err := handlers.NewHandler(st, settings.UseFileSystem, embeddedTemplates, nameOfService, Version)
 	if err != nil {
 		logError("failed to create handlers: %v", err)
 		startup <- err
@@ -132,7 +132,7 @@ func (p *program) run(startup chan<- error) error {
 		Handler:  handler,
 		LogSink:  logQueue,
 		Settings: settings,
-		Assets:   embededFiles,
+		Assets:   embeddedAssets,
 		Version:  Version,
 		Logger:   appLogger(),
 	})
@@ -142,7 +142,7 @@ func (p *program) run(startup chan<- error) error {
 		return err
 	}
 	srv := &http.Server{
-		Handler: http.TimeoutHandler(routerEngine, time.Duration(settings.Timeout)*time.Second, "Timeout"),
+		Handler: http.TimeoutHandler(routerEngine, settings.Timeout, "Timeout"),
 		Addr:    settings.Port,
 	}
 	listener, err := netListen("tcp", settings.Port)
@@ -177,40 +177,29 @@ func (p *program) run(startup chan<- error) error {
 	return nil
 }
 
-// openStore opens the storage backend chosen with STORAGE.
-func openStore() (store.Store, error) {
-	switch settings.Storage {
-	case types.StorageSQLite:
-		return newSQLiteStore(settings.SqlitePath)
-	case types.StorageMySQL:
-		return newMySQLStore(mysql.Config{
-			User:                 settings.MySqlSettings.Username,
-			Passwd:               settings.MySqlSettings.Password,
-			Net:                  "tcp",
-			Addr:                 settings.MySqlSettings.Host + ":" + settings.MySqlSettings.Port,
-			DBName:               settings.MySqlSettings.Database,
-			AllowNativePasswords: true,
-		})
-	case types.StorageFileMaker:
+// storeOpeners opens each STORAGE backend. Keep it in step with
+// types.StorageBackends (TestStoreOpenersMatchStorageBackends).
+var storeOpeners = map[string]func() (store.Store, error){
+	types.StorageSQLite: func() (store.Store, error) { return newSQLiteStore(settings.SqlitePath) },
+	types.StorageMySQL:  func() (store.Store, error) { return newMySQLStore(settings.MySqlSettings) },
+	types.StorageFileMaker: func() (store.Store, error) {
 		fm := settings.FileMaker
 		if fm.InsecureSkipVerify {
 			logWarning("FMS_INSECURE_SKIP_VERIFY is set: the FileMaker Server certificate is NOT verified, so credentials can be intercepted. Use FMS_CA_FILE instead.")
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), fm.Timeout)
 		defer cancel()
-		return newFileMakerStore(ctx, store.FileMakerConfig{
-			Host:               fm.Host,
-			Database:           fm.Database,
-			Username:           fm.Username,
-			Password:           fm.Password,
-			Timeout:            fm.Timeout,
-			Table:              fm.LogTable,
-			CAFile:             fm.CAFile,
-			InsecureSkipVerify: fm.InsecureSkipVerify,
-		})
-	default:
+		return newFileMakerStore(ctx, fm)
+	},
+}
+
+// openStore opens the storage backend chosen with STORAGE.
+func openStore() (store.Store, error) {
+	open, ok := storeOpeners[settings.Storage]
+	if !ok {
 		return nil, fmt.Errorf("unsupported STORAGE %q", settings.Storage)
 	}
+	return open()
 }
 
 // Stop waits for graceful shutdown to finish: once it returns,
@@ -237,7 +226,7 @@ func ensureAuthToken() {
 }
 
 // serviceLogger adapts the kardianos/service logger, whose methods return an
-// error, to router.Logger.
+// error, to logging.Logger.
 type serviceLogger struct {
 	l service.Logger
 }
@@ -248,9 +237,9 @@ func (s serviceLogger) Errorf(format string, v ...interface{})   { s.l.Errorf(fo
 
 // appLogger returns the service manager's logger, or the standard logger
 // before one is set up (tests, early startup).
-func appLogger() router.Logger {
+func appLogger() logging.Logger {
 	if logger == nil {
-		return router.StdLogger{}
+		return logging.Std{}
 	}
 	return serviceLogger{l: logger}
 }
