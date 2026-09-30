@@ -42,6 +42,7 @@ The code examples are illustrative, not compilable. The template-service reposit
 1. **Service lifecycle**: `Start` validates configuration and initializes storage, routing, and the listener before returning startup success. Serving runs asynchronously. `Stop` triggers graceful shutdown with a five-second deadline and returns only after shutdown completes.
 2. **Storage boundary**: Handlers and middleware depend on `store.Store`, not concrete database types.
 3. **SQLite**: Use `github.com/ncruces/go-sqlite3` to keep builds CGO-free.
+   **FileMaker**: Reach FileMaker Server only through `fmsodata` over `https://` with verified certificates (`FMS_CA_FILE` for a private CA); Basic auth is sent with every request. The service never creates FileMaker tables; it checks them at startup.
 4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
 5. **Routes**: Declare routes as `Route` values in `router.GetRoutes(handler)`; `router.NewRouter(cfg)` applies middleware and registers them.
 6. **Authentication**: Protected routes fail closed. `router.NewRouter` rejects an empty `AUTH_TOKEN` when any route has `UseAuth: true`. When `AUTH_TOKEN` is unset, the service generates a random temporary token and logs it before building the router; real deployments must set `AUTH_TOKEN`. Compare tokens with `subtle.ConstantTimeCompare`.
@@ -64,7 +65,9 @@ type Store interface {
 }
 ```
 
-`STORAGE` (`sqlite` or `mysql`) selects the backend. Each backend has a constructor that opens and owns its connection (`store.NewSQLite(path)`, `store.NewMySQL(cfg)`); the service opens the configured store, `defer`s `Close()` immediately, then pings it with a short deadline before building the router.
+`STORAGE` (`sqlite`, `mysql` or `filemaker`) selects the backend. Each backend has a constructor that opens and owns its connection (`store.NewSQLite(path)`, `store.NewMySQL(cfg)`, `store.NewFileMaker(ctx, cfg)`); the service opens the configured store, `defer`s `Close()` immediately, then pings it with a short deadline before building the router.
+
+`store.FileMakerStore` keeps logs in a FileMaker table created by a FileMaker developer. Its constructor fails unless a `$select` of every field with `$top=0` succeeds, so setup mistakes surface at deploy time. `LogRequests` sends one `$batch` change set with `Prefer: return=minimal`; 4xx responses (except 408 and 429) are wrapped with `store.Permanent`. `CreatedAt` is written as UTC without an offset and read back as UTC wall-clock time.
 
 Store timestamps in UTC so ranges compare correctly on any server. SQLite keeps `created_at` as text, so write it in a fixed-width UTC layout; the driver's default RFC3339Nano varies in length and does not sort as a string.
 

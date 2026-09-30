@@ -43,6 +43,17 @@ func main() {
 }
 ```
 
+Set `TLSConfig` to trust a private CA (for example `&tls.Config{RootCAs: pool}`); nil uses Go's default certificate verification. Call `client.CloseIdleConnections()` when you are done with the client.
+
+Requests that the server answers with an error status return a `*fmsodata.StatusError` with the `StatusCode` and (capped) response body, so callers can tell a rejected request (4xx) from a server problem (5xx):
+
+```go
+var se *fmsodata.StatusError
+if errors.As(err, &se) && se.StatusCode == http.StatusUnauthorized {
+    // bad credentials
+}
+```
+
 ### CRUD Operations
 
 #### Get Records
@@ -86,6 +97,19 @@ record, err := client.CreateRecord(context.Background(), "TableName", data)
 ```
 
 `CreateRecord` returns the created record for `200 OK`/`201 Created`. When the server answers `204 No Content` (for example if FileMaker honors a `Prefer: return=minimal` request), it returns `nil, nil`.
+
+#### Create Records in One Batch
+
+`CreateRecords` sends all records in one `$batch` request as a single change set, each with `Prefer: return=minimal`, and returns a `*StatusError` if the batch or any create in it fails:
+
+```go
+err := client.CreateRecords(context.Background(), "TableName", []map[string]interface{}{
+    {"Name": "Jane Doe"},
+    {"Name": "John Doe"},
+})
+```
+
+Claris documents the request format but not the response, nor whether a change set is atomic; the client accepts both a response per create and a single error response for the whole change set.
 
 #### Update Record
 

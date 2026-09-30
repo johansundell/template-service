@@ -50,6 +50,13 @@ var newMySQLStore = func(cfg mysql.Config) (store.Store, error) {
 	}
 	return s, nil
 }
+var newFileMakerStore = func(ctx context.Context, cfg store.FileMakerConfig) (store.Store, error) {
+	s, err := store.NewFileMaker(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 var netListen = net.Listen
 
 func (p *program) Start(s service.Service) error {
@@ -175,6 +182,23 @@ func openStore() (store.Store, error) {
 			Addr:                 settings.MySqlSettings.Host + ":" + settings.MySqlSettings.Port,
 			DBName:               settings.MySqlSettings.Database,
 			AllowNativePasswords: true,
+		})
+	case types.StorageFileMaker:
+		fm := settings.FileMaker
+		if fm.InsecureSkipVerify {
+			logWarning("FMS_INSECURE_SKIP_VERIFY is set: the FileMaker Server certificate is NOT verified, so credentials can be intercepted. Use FMS_CA_FILE instead.")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), fm.Timeout)
+		defer cancel()
+		return newFileMakerStore(ctx, store.FileMakerConfig{
+			Host:               fm.Host,
+			Database:           fm.Database,
+			Username:           fm.Username,
+			Password:           fm.Password,
+			Timeout:            fm.Timeout,
+			Table:              fm.LogTable,
+			CAFile:             fm.CAFile,
+			InsecureSkipVerify: fm.InsecureSkipVerify,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported STORAGE %q", settings.Storage)

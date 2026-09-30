@@ -196,7 +196,20 @@ func (c *Client) DeleteRecord(ctx context.Context, tableName string, id string) 
 	return nil
 }
 
+// StatusError is returned when the server answers with an error status.
+type StatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("OData request failed with status %d: %s", e.StatusCode, e.Body)
+}
+
+// maxErrorBody caps how much of an error response is kept in a StatusError.
+const maxErrorBody = 64 << 10
+
 func (c *Client) handleError(resp *http.Response) error {
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("OData request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	return &StatusError{StatusCode: resp.StatusCode, Body: string(bodyBytes)}
 }

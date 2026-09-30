@@ -1,6 +1,9 @@
 package fmsodata
 
-import "time"
+import (
+	"crypto/tls"
+	"time"
+)
 
 // ODataResponse represents a generic OData response
 type ODataResponse struct {
@@ -38,6 +41,9 @@ type ClientConfig struct {
 	Username string
 	Password string
 	Timeout  time.Duration
+	// TLSConfig, when set, is used for HTTPS connections, for example to trust
+	// a private CA. Nil uses Go's default verification.
+	TLSConfig *tls.Config
 }
 
 // ScriptResult represents the result of a script execution

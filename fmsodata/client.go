@@ -20,13 +20,22 @@ type Client struct {
 // NewClient creates a new OData client
 func NewClient(config ClientConfig) *Client {
 	baseURL := fmt.Sprintf("%s/fmi/odata/v4/%s", config.Host, config.Database)
+	httpClient := &http.Client{Timeout: config.Timeout}
+	if config.TLSConfig != nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = config.TLSConfig
+		httpClient.Transport = transport
+	}
 	return &Client{
-		client: &http.Client{
-			Timeout: config.Timeout,
-		},
+		client:  httpClient,
 		config:  config,
 		baseURL: baseURL,
 	}
+}
+
+// CloseIdleConnections closes connections kept open for reuse.
+func (c *Client) CloseIdleConnections() {
+	c.client.CloseIdleConnections()
 }
 
 // getBasicAuthHeader returns the Basic Auth header value
@@ -39,7 +48,9 @@ func (c *Client) getBasicAuthHeader() string {
 func (c *Client) doRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
 	req = req.WithContext(ctx)
 	req.Header.Set("Authorization", c.getBasicAuthHeader())
-	req.Header.Set("Content-Type", "application/json")
+	if req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("Accept", "application/json")
 	return c.client.Do(req)
 }

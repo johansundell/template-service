@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/johansundell/template-service/types"
 	"github.com/johansundell/template-service/utils"
@@ -71,5 +72,21 @@ func loadSettings(filenames ...string) {
 		settings.MySqlSettings.Port = "3306"
 	}
 	settings.MySqlSettings.Database = os.Getenv("MYSQL_DATABASE")
+
+	settings.FileMaker.Host = os.Getenv("FMS_HOST")
+	settings.FileMaker.Database = os.Getenv("FMS_DATABASE")
+	settings.FileMaker.Username = os.Getenv("FMS_USERNAME")
+	settings.FileMaker.Password = os.Getenv("FMS_PASSWORD")
+	settings.FileMaker.Timeout = 10 * time.Second
+	if v := os.Getenv("FMS_TIMEOUT"); v != "" {
+		// An invalid value becomes 0, which Validate rejects.
+		settings.FileMaker.Timeout, _ = time.ParseDuration(v)
+	}
+	settings.FileMaker.LogTable = os.Getenv("FMS_LOG_TABLE")
+	if settings.FileMaker.LogTable == "" {
+		settings.FileMaker.LogTable = "Logs"
+	}
+	settings.FileMaker.CAFile = os.Getenv("FMS_CA_FILE")
+	settings.FileMaker.InsecureSkipVerify, _ = strconv.ParseBool(os.Getenv("FMS_INSECURE_SKIP_VERIFY"))
 
 }

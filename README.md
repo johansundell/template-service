@@ -45,7 +45,7 @@ The application can be installed as a system service.
 
 - **Web Server**: Built with [Gin](https://github.com/gin-gonic/gin) for high performance.
 - **Service Management**: Can be installed and managed as a system service (Windows Service, Systemd, etc.) using [kardianos/service](https://github.com/kardianos/service).
-- **Database Support**: Integrated support for SQLite and MySQL.
+- **Database Support**: Request logs in SQLite, MySQL or FileMaker (see [FileMaker storage](#filemaker-storage)).
 - **Authentication**: Simple token-based authentication for protected routes.
 - **Docker Ready**: Includes `Dockerfile` and `docker-compose.yml` for easy containerization.
 - **Asset Management**: Supports embedding assets or serving from the file system.
@@ -103,7 +103,7 @@ The application is configured via environment variables. You can set these in a 
 | `PORT` | string | `:8080` | The port the server listens on. |
 | `USE_FILE_SYSTEM` | bool | `false` | If true, serves assets from the `assets` folder. If false, uses embedded assets. |
 | `TIMEOUT` | int | `15` | Request timeout in seconds. |
-| `STORAGE` | string | `sqlite` | Storage backend for request logs: `sqlite` or `mysql`. |
+| `STORAGE` | string | `sqlite` | Storage backend for request logs: `sqlite`, `mysql` or `filemaker`. |
 | `SQLITE_PATH` | string | `<binary dir>/<nameOfService>.db` | Path to SQLite database file (`STORAGE=sqlite`). |
 | `AUTH_TOKEN` | string | - | Token required for protected endpoints. |
 | `MYSQL_USERNAME` | string | - | MySQL username (required when `STORAGE=mysql`, as are `MYSQL_HOST` and `MYSQL_DATABASE`). |
@@ -111,5 +111,38 @@ The application is configured via environment variables. You can set these in a 
 | `MYSQL_HOST` | string | - | MySQL host address. |
 | `MYSQL_PORT` | string | `3306` | MySQL port. |
 | `MYSQL_DATABASE` | string | - | MySQL database name. |
+| `FMS_HOST` | string | - | FileMaker Server URL; must start with `https://` (required when `STORAGE=filemaker`, as are `FMS_DATABASE`, `FMS_USERNAME` and `FMS_PASSWORD`). |
+| `FMS_DATABASE` | string | - | FileMaker file (database) name. |
+| `FMS_USERNAME` | string | - | FileMaker account with the `fmodata` extended privilege. |
+| `FMS_PASSWORD` | string | - | Password for that account. |
+| `FMS_TIMEOUT` | duration | `10s` | Timeout for each FileMaker request, and for the startup check. |
+| `FMS_LOG_TABLE` | string | `Logs` | FileMaker table for request logs. |
+| `FMS_CA_FILE` | string | - | PEM file with extra CA certificates to trust, for a server with a private CA. |
+| `FMS_INSECURE_SKIP_VERIFY` | bool | `false` | Skip certificate verification. Logs a warning on every start; prefer `FMS_CA_FILE`. |
+
+## FileMaker storage
+
+With `STORAGE=filemaker`, request logs are written to a FileMaker table through the FileMaker OData API. The service never creates or changes the table: a FileMaker developer sets it up once, and at startup the service checks that it can read the table and every field. A missing table or field, a wrong password or an unreachable server stops startup with FileMaker's error.
+
+Create the table (default name `Logs`, see `FMS_LOG_TABLE`) with these fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `ID` | Number | Auto-enter serial number, unique. Returned as `id` by `GET /logs`. |
+| `Status` | Number | |
+| `Method` | Text | |
+| `Error` | Text | |
+| `Endpoint` | Text | |
+| `CreatedAt` | Timestamp | Stored in **UTC** without a time zone. Add a calculation field if people browsing the file want local time. |
+| `Request` | Text | Turn indexing off (bodies up to 1 MiB). |
+| `Response` | Text | Turn indexing off. |
+
+The account needs the `fmodata` extended privilege and create and view access to the table.
+
+**Connection.** `FMS_HOST` must use `https://`, because the account's password is sent with every request. Certificates are verified; for a server with a private CA, point `FMS_CA_FILE` at the CA's PEM file. `FMS_INSECURE_SKIP_VERIFY=true` turns verification off and logs a warning on every start.
+
+**Writes.** Log entries are sent in batches as one OData `$batch` request each, asking FileMaker not to send the records back (`Prefer: return=minimal`) to save the server's data-transfer allowance. A rejected batch (a 4xx response, for example a changed field) is dropped and logged at once; network errors and 5xx responses are retried.
+
+**Testing against a real server.** `go test -tags filemaker ./store` runs an integration test when `FMS_TEST_HOST`, `FMS_TEST_DATABASE`, `FMS_TEST_USERNAME` and `FMS_TEST_PASSWORD` (and optionally `FMS_TEST_CA_FILE`) are set. It uses its own variables so it never touches a service's database, and creates and deletes a temporary `LogsTest_<timestamp>` table; the account needs schema privileges for that.
 
 

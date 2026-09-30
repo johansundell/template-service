@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/johansundell/template-service/types"
 	"github.com/johansundell/template-service/utils"
@@ -179,5 +180,41 @@ func TestLoadSettings_Storage(t *testing.T) {
 	}
 	if err := settings.Validate(); err == nil {
 		t.Error("expected Validate to reject an unknown STORAGE")
+	}
+}
+
+func TestLoadSettings_FileMaker(t *testing.T) {
+	for _, k := range []string{"FMS_HOST", "FMS_DATABASE", "FMS_USERNAME", "FMS_PASSWORD", "FMS_TIMEOUT", "FMS_LOG_TABLE", "FMS_CA_FILE", "FMS_INSECURE_SKIP_VERIFY", "STORAGE"} {
+		t.Setenv(k, "")
+	}
+	load := func(t *testing.T, content string) types.FileMakerSettings {
+		tmpEnv, err := os.CreateTemp("", ".env.*")
+		if err != nil {
+			t.Fatalf("Failed to create temp env file: %v", err)
+		}
+		defer os.Remove(tmpEnv.Name())
+		tmpEnv.WriteString(content)
+		tmpEnv.Close()
+		loadSettings(tmpEnv.Name())
+		return settings.FileMaker
+	}
+	defer loadSettings()
+
+	fm := load(t, "PORT=:9999\n")
+	if fm.Timeout != 10*time.Second || fm.LogTable != "Logs" || fm.InsecureSkipVerify {
+		t.Errorf("unexpected defaults: %+v", fm)
+	}
+
+	fm = load(t, "STORAGE=filemaker\nFMS_HOST=https://fms.example.com\nFMS_DATABASE=Logging\nFMS_USERNAME=u\nFMS_PASSWORD=p\nFMS_TIMEOUT=3s\nFMS_LOG_TABLE=ServiceLogs\nFMS_CA_FILE=/etc/ca.pem\nFMS_INSECURE_SKIP_VERIFY=true\n")
+	want := types.FileMakerSettings{Host: "https://fms.example.com", Database: "Logging", Username: "u", Password: "p", Timeout: 3 * time.Second, LogTable: "ServiceLogs", CAFile: "/etc/ca.pem", InsecureSkipVerify: true}
+	if fm != want {
+		t.Errorf("expected %+v, got %+v", want, fm)
+	}
+	if err := settings.Validate(); err != nil {
+		t.Errorf("expected loaded FileMaker settings to validate, got %v", err)
+	}
+
+	if fm = load(t, "FMS_TIMEOUT=soon\n"); fm.Timeout != 0 {
+		t.Errorf("expected an invalid FMS_TIMEOUT to become 0 for Validate to reject, got %v", fm.Timeout)
 	}
 }
