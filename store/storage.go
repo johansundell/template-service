@@ -14,12 +14,20 @@ import (
 // backend owns its connection; the caller must Close it.
 type Store interface {
 	Ping(ctx context.Context) error
-	// GetLogs returns the entries with from <= CreatedAt < to, oldest first.
-	GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error)
+	// GetLogs returns the entries with from <= CreatedAt < to, oldest first
+	// (by CreatedAt, then ID), limited to page.
+	GetLogs(ctx context.Context, from, to time.Time, page Page) ([]types.UsageLog, error)
 	// LogRequests persists a batch of entries, all or nothing where the
 	// backend supports it. Wrap errors that retrying cannot fix with Permanent.
 	LogRequests(ctx context.Context, entries []types.UsageLog) error
 	Close() error
+}
+
+// Page selects a slice of an ordered result: skip Offset entries, then return
+// at most Limit. A Limit of 0 or less means no limit.
+type Page struct {
+	Limit  int
+	Offset int
 }
 
 type permanentError struct{ err error }
@@ -47,6 +55,8 @@ type SQLStore struct {
 	db *sql.DB
 	// timeArg converts a timestamp into the driver argument for created_at.
 	timeArg func(time.Time) any
+	// noLimit is the LIMIT value meaning "all rows", needed with OFFSET.
+	noLimit int64
 }
 
 func (s *SQLStore) Ping(ctx context.Context) error {
@@ -82,8 +92,17 @@ func (s *SQLStore) LogRequests(ctx context.Context, entries []types.UsageLog) er
 	return tx.Commit()
 }
 
-func (s *SQLStore) GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, status, method, error, endpoint, created_at, response, request FROM request_logs WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id`, s.timeArg(from), s.timeArg(to))
+func (s *SQLStore) GetLogs(ctx context.Context, from, to time.Time, page Page) ([]types.UsageLog, error) {
+	query := `SELECT id, status, method, error, endpoint, created_at, response, request FROM request_logs WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id`
+	args := []any{s.timeArg(from), s.timeArg(to)}
+	if page.Limit > 0 {
+		query += ` LIMIT ? OFFSET ?`
+		args = append(args, page.Limit, max(page.Offset, 0))
+	} else if page.Offset > 0 {
+		query += ` LIMIT ? OFFSET ?`
+		args = append(args, s.noLimit, page.Offset)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

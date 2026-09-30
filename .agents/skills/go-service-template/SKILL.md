@@ -56,8 +56,9 @@ Keep the storage contract small and interface-based. Every method takes a `conte
 ```go
 type Store interface {
     Ping(ctx context.Context) error
-    // GetLogs returns the entries with from <= CreatedAt < to, oldest first.
-    GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error)
+    // GetLogs returns the entries with from <= CreatedAt < to, oldest first
+    // (by CreatedAt, then ID), limited to page (store.Page{Limit, Offset}).
+    GetLogs(ctx context.Context, from, to time.Time, page Page) ([]types.UsageLog, error)
     // LogRequests persists a batch, all or nothing where the backend supports it.
     // Wrap errors that retrying cannot fix with store.Permanent.
     LogRequests(ctx context.Context, entries []types.UsageLog) error

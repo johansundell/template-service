@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -137,12 +138,18 @@ func classifyFileMakerError(err error) error {
 	return err
 }
 
-func (s *FileMakerStore) GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error) {
+func (s *FileMakerStore) GetLogs(ctx context.Context, from, to time.Time, page Page) ([]types.UsageLog, error) {
 	query := url.Values{}
 	query.Set("$select", strings.Join(fileMakerFields, ","))
 	query.Set("$filter", fmt.Sprintf("CreatedAt ge %s and CreatedAt lt %s",
 		from.UTC().Format(fileMakerTimeLayout), to.UTC().Format(fileMakerTimeLayout)))
 	query.Set("$orderby", "CreatedAt asc,ID asc")
+	if page.Limit > 0 {
+		query.Set("$top", strconv.Itoa(page.Limit))
+	}
+	if page.Offset > 0 {
+		query.Set("$skip", strconv.Itoa(page.Offset))
+	}
 
 	records, err := s.client.GetRecords(ctx, s.table, query)
 	if err != nil {

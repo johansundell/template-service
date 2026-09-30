@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func TestGetLogs(t *testing.T) {
 		t.Fatalf("LogRequests failed: %v", err)
 	}
 
-	logs, err := s.GetLogs(ctx, now.Add(-time.Hour), now.Add(time.Hour))
+	logs, err := s.GetLogs(ctx, now.Add(-time.Hour), now.Add(time.Hour), Page{})
 	if err != nil {
 		t.Fatalf("GetLogs failed: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestGetLogs_UTCDayBoundaries(t *testing.T) {
 		}
 	}
 
-	logs, err := s.GetLogs(ctx, dayStart, dayEnd)
+	logs, err := s.GetLogs(ctx, dayStart, dayEnd, Page{})
 	if err != nil {
 		t.Fatalf("GetLogs failed: %v", err)
 	}
@@ -182,5 +183,54 @@ func TestLogRequests_BatchIsAllOrNothing(t *testing.T) {
 
 	if err := s.LogRequests(ctx, nil); err != nil {
 		t.Errorf("Expected an empty batch to be a no-op, got %v", err)
+	}
+}
+
+func TestGetLogs_Page(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	var batch []types.UsageLog
+	for i := 0; i < 5; i++ {
+		// Entries 1 and 2 share a timestamp: ID breaks the tie.
+		at := base.Add(time.Duration(i) * time.Minute)
+		if i == 2 {
+			at = base.Add(time.Minute)
+		}
+		batch = append(batch, types.UsageLog{Endpoint: fmt.Sprintf("/e%d", i), CreatedAt: at})
+	}
+	if err := s.LogRequests(ctx, batch); err != nil {
+		t.Fatalf("LogRequests failed: %v", err)
+	}
+
+	endpoints := func(page Page) []string {
+		t.Helper()
+		logs, err := s.GetLogs(ctx, base, base.Add(time.Hour), page)
+		if err != nil {
+			t.Fatalf("GetLogs(%+v) failed: %v", page, err)
+		}
+		var out []string
+		for _, l := range logs {
+			out = append(out, l.Endpoint)
+		}
+		return out
+	}
+
+	cases := []struct {
+		page Page
+		want string
+	}{
+		{Page{}, "[/e0 /e1 /e2 /e3 /e4]"},
+		{Page{Limit: 2}, "[/e0 /e1]"},
+		{Page{Limit: 2, Offset: 2}, "[/e2 /e3]"},
+		{Page{Limit: 2, Offset: 4}, "[/e4]"},
+		{Page{Limit: 2, Offset: 9}, "[]"},
+		{Page{Offset: 3}, "[/e3 /e4]"}, // offset without a limit
+	}
+	for _, tc := range cases {
+		if got := fmt.Sprint(endpoints(tc.page)); got != tc.want {
+			t.Errorf("GetLogs(%+v) = %s, want %s", tc.page, got, tc.want)
+		}
 	}
 }
