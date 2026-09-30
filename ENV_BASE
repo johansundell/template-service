@@ -1,4 +1,5 @@
-DEBUG=true
+# true logs the route table and an access log line per request
+DEBUG=false
 PORT=:8080
 # true serves assets/ and tmpl/ from next to the binary; needs a built binary, not go run
 USE_FILE_SYSTEM=false

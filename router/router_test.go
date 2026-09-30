@@ -594,3 +594,66 @@ func mustNewHandler(t *testing.T, s store.Store, ufs bool, fsys fs.FS, name, ver
 	}
 	return h
 }
+
+func TestNewRouter_Debug(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	newRouter := func(debug bool) (*gin.Engine, *testLogger) {
+		t.Helper()
+		tl := &testLogger{}
+		r, err := router.NewRouter(router.Config{
+			Handler:  mustNewHandler(t, nopStore{}, false, fstest.MapFS{}, "test", "dev"),
+			LogSink:  &recordingSink{},
+			Settings: types.AppSettings{AuthToken: "secret-token", Debug: debug},
+			Assets:   fstest.MapFS{},
+			Logger:   tl,
+		})
+		if err != nil {
+			t.Fatalf("NewRouter failed: %v", err)
+		}
+		return r, tl
+	}
+
+	t.Run("on", func(t *testing.T) {
+		r, tl := newRouter(true)
+
+		var routes int
+		for _, e := range tl.entries {
+			if strings.HasPrefix(e.message, "route ") {
+				routes++
+			}
+		}
+		if want := len(router.GetRoutes(mustNewHandler(t, nopStore{}, false, fstest.MapFS{}, "test", "dev"))); routes != want {
+			t.Errorf("Expected %d route lines, got %d: %v", want, routes, tl.messages)
+		}
+		found := false
+		for _, m := range tl.messages {
+			if strings.Contains(m, "route POST /pong (Pong) auth=true logged=true") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected a route line for Pong, got %v", tl.messages)
+		}
+
+		before := len(tl.entries)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", "/ping/hello?token=abc", nil))
+		access := tl.entries[before:]
+		if len(access) != 1 || access[0].level != "INFO" || !strings.HasPrefix(access[0].message, "GET /ping/hello 200 ") {
+			t.Fatalf("Expected one access log line for GET /ping/hello 200, got %v", access)
+		}
+		if strings.Contains(access[0].message, "token=abc") {
+			t.Errorf("Access log must not include the query string, got %q", access[0].message)
+		}
+	})
+
+	t.Run("off", func(t *testing.T) {
+		r, tl := newRouter(false)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", "/ping/hello", nil))
+		if len(tl.entries) != 0 {
+			t.Errorf("Expected no debug logging, got %v", tl.messages)
+		}
+	})
+}

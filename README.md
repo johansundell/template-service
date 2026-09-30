@@ -161,7 +161,7 @@ The application is configured via environment variables. You can set these in a 
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DEBUG` | bool | `false` | Enable debug mode. |
+| `DEBUG` | bool | `false` | Log the route table at startup and one access log line per request (method, path, status, duration, client IP) through the service log. For troubleshooting; leave it off in normal use. |
 | `PORT` | string | `:8080` | The port the server listens on. |
 | `USE_FILE_SYSTEM` | bool | `false` | If true, serves assets and templates from the `assets` and `tmpl` folders next to the binary (edit them without rebuilding). If false, uses the embedded copies. Doesn't work with `go run .` (see [Running Locally](#running-locally)). |
 | `TIMEOUT` | int | `15` | Request timeout in seconds. |
