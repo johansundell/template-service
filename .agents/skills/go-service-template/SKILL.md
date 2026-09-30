@@ -163,6 +163,8 @@ func GetRoutes(handler *handlers.Handler) Routes {
 }
 ```
 
+With `DEBUG=true` (`cfg.Settings.Debug`), `NewRouter` logs the route table and adds `router.AccessLog`, one line per request, through the injected logger rather than Gin's stdout debug mode, so the output reaches the service log.
+
 `router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (returning an error instead of registering an unsafe route), applies authentication outside the logger, then registers `WrapHandler`. Request order is `WrapHandler -> Auth -> Logger -> handler`:
 
 ```go

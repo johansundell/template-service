@@ -98,6 +98,10 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 	routes := GetRoutes(cfg.Handler)
 
 	l := orStdLogger(cfg.Logger)
+	debug := cfg.Settings.Debug
+	if debug {
+		router.Use(AccessLog(l))
+	}
 
 	for _, route := range routes {
 		if route.UseAuth && cfg.Settings.AuthToken == "" {
@@ -122,6 +126,9 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		}
 
 		router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
+		if debug {
+			l.Infof("route %s %s (%s) auth=%v logged=%v", route.Method, route.Pattern, route.Name, route.UseAuth, route.UseLogger)
+		}
 	}
 
 	// Static files
@@ -132,6 +139,18 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 	router.StaticFS("/assets", fsys)
 
 	return router, nil
+}
+
+// AccessLog logs one line per request (method, path, status, duration and
+// client IP) through l. NewRouter adds it when DEBUG=true. The query string
+// is left out so tokens in URLs don't end up in the log.
+func AccessLog(l Logger) gin.HandlerFunc {
+	l = orStdLogger(l)
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		l.Infof("%s %s %d %v %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), time.Since(start).Round(time.Microsecond), c.ClientIP())
+	}
 }
 
 // AuthMiddleware returns a middleware that validates the Authorization header
