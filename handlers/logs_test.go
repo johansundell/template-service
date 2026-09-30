@@ -36,7 +36,7 @@ func TestGetLogsHandler(t *testing.T) {
 		t.Fatalf("Failed to insert log: %v", err)
 	}
 
-	h := NewHandler(s, false, mockFS, "test-service", "v1.0")
+	h := mustNewHandler(t, s, false, mockFS, "test-service", "v1.0")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -87,7 +87,7 @@ func TestGetLogsHandler_ToIsInclusiveUTCDay(t *testing.T) {
 		}
 	}
 
-	h := NewHandler(s, false, fstest.MapFS{}, "test-service", "v1.0")
+	h := mustNewHandler(t, s, false, fstest.MapFS{}, "test-service", "v1.0")
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/logs", nil)
@@ -115,7 +115,7 @@ func TestGetLogsHandler_EmptyRangeReturnsArray(t *testing.T) {
 	}
 	defer s.Close()
 
-	h := NewHandler(s, false, fstest.MapFS{}, "test-service", "v1.0")
+	h := mustNewHandler(t, s, false, fstest.MapFS{}, "test-service", "v1.0")
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/logs", nil)

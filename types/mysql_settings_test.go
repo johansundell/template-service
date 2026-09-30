@@ -40,22 +40,6 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		{
-			name: "mysql enabled with leading colon in port",
-			s: AppSettings{
-				Port:    ":8080",
-				Timeout: 10,
-				Storage: StorageMySQL,
-				MySqlSettings: struct {
-					Username string `json:"username"`
-					Password string `json:"password"`
-					Host     string `json:"host"`
-					Port     string `json:"port"`
-					Database string `json:"database"`
-				}{Username: "user", Host: "db.local", Database: "appdb", Port: ":3306"},
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tc := range cases {

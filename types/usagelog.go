@@ -6,7 +6,6 @@ import (
 
 type UsageLog struct {
 	ID        int       `json:"id"`
-	IdKey     int       `json:"id_key"`
 	Status    int       `json:"status"`
 	Method    string    `json:"method"`
 	Error     string    `json:"error"`

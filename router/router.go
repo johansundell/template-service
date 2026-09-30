@@ -44,18 +44,28 @@ type Logger interface {
 	Errorf(format string, v ...interface{})
 }
 
-type stdLogger struct{}
+// StdLogger writes to the standard library logger, with a level prefix for
+// warnings and errors.
+type StdLogger struct{}
 
-func (stdLogger) Infof(format string, v ...interface{}) {
+func (StdLogger) Infof(format string, v ...interface{}) {
 	log.Printf(format, v...)
 }
 
-func (stdLogger) Warningf(format string, v ...interface{}) {
+func (StdLogger) Warningf(format string, v ...interface{}) {
 	log.Printf("WARNING: "+format, v...)
 }
 
-func (stdLogger) Errorf(format string, v ...interface{}) {
+func (StdLogger) Errorf(format string, v ...interface{}) {
 	log.Printf("ERROR: "+format, v...)
+}
+
+// orStdLogger returns l, or StdLogger when l is nil.
+func orStdLogger(l Logger) Logger {
+	if l == nil {
+		return StdLogger{}
+	}
+	return l
 }
 
 // LogSink receives request log entries. It must not block; logqueue.Queue
@@ -87,10 +97,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 
 	routes := GetRoutes(cfg.Handler)
 
-	l := cfg.Logger
-	if l == nil {
-		l = stdLogger{}
-	}
+	l := orStdLogger(cfg.Logger)
 
 	for _, route := range routes {
 		if route.UseAuth && cfg.Settings.AuthToken == "" {
@@ -129,9 +136,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 
 // AuthMiddleware returns a middleware that validates the Authorization header
 func AuthMiddleware(authToken string, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
-	if l == nil {
-		l = stdLogger{}
-	}
+	l = orStdLogger(l)
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 
@@ -209,9 +214,7 @@ const maxRequestBodyBytes = 1 << 20
 // LoggerMiddleware captures each request and response and hands the entry to
 // sink; persisting it happens in the background.
 func LoggerMiddleware(sink LogSink, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
-	if l == nil {
-		l = stdLogger{}
-	}
+	l = orStdLogger(l)
 	return func(inner HandlerFuncWithError) HandlerFuncWithError {
 		return func(c *gin.Context) error {
 			// Read the request body once, capped so large requests can't
