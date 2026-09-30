@@ -187,3 +187,125 @@ func TestPing(t *testing.T) {
 	err := client.Ping(context.Background())
 	assert.NoError(t, err)
 }
+
+func newTestClient(serverURL string) *Client {
+	return NewClient(ClientConfig{Host: serverURL, Database: "testdb", Username: "user", Password: "pass", Timeout: 10 * time.Second})
+}
+
+func TestGetRecords_FollowsNextLink(t *testing.T) {
+	var requests []string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.RequestURI())
+		assert.Equal(t, "Basic dXNlcjpwYXNz", r.Header.Get("Authorization"))
+		switch r.URL.Query().Get("$skip") {
+		case "":
+			// Relative nextLink, as FileMaker may return
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"value":           []map[string]interface{}{{"ID": 1}, {"ID": 2}},
+				"@odata.nextLink": "Logs?$top=2&$skip=2",
+			})
+		case "2":
+			// Absolute nextLink on the same server
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"value":           []map[string]interface{}{{"ID": 3}, {"ID": 4}},
+				"@odata.nextLink": server.URL + "/fmi/odata/v4/testdb/Logs?$top=2&$skip=4",
+			})
+		case "4":
+			json.NewEncoder(w).Encode(map[string]interface{}{"value": []map[string]interface{}{{"ID": 5}}})
+		default:
+			t.Errorf("unexpected request %s", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	query := url.Values{}
+	query.Set("$top", "2")
+	records, err := newTestClient(server.URL).GetRecords(context.Background(), "Logs", query)
+	assert.NoError(t, err)
+	assert.Len(t, records, 5)
+	assert.Equal(t, float64(5), records[4]["ID"])
+	assert.Len(t, requests, 3)
+}
+
+func TestGetRecords_RejectsNextLinkToOtherHost(t *testing.T) {
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("credentials must not be sent to another host, got request with Authorization %q", r.Header.Get("Authorization"))
+	}))
+	defer other.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"value":           []map[string]interface{}{{"ID": 1}},
+			"@odata.nextLink": other.URL + "/steal",
+		})
+	}))
+	defer server.Close()
+
+	_, err := newTestClient(server.URL).GetRecords(context.Background(), "Logs", url.Values{})
+	assert.ErrorContains(t, err, "points outside")
+}
+
+func TestGetRecords_DetectsPagingLoop(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"value":           []map[string]interface{}{{"ID": calls}},
+			"@odata.nextLink": "Logs",
+		})
+	}))
+	defer server.Close()
+
+	_, err := newTestClient(server.URL).GetRecords(context.Background(), "Logs", url.Values{})
+	assert.ErrorContains(t, err, "paging loop")
+	assert.Equal(t, 1, calls)
+}
+
+func TestGetRecords_FilterWithPlusOffset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The '+' in the offset must arrive as '+', and spaces as spaces.
+		assert.Equal(t, "CreatedAt ge 2026-09-30T00:00:00+02:00", r.URL.Query().Get("$filter"))
+		assert.NotContains(t, r.URL.RawQuery, "+")
+		json.NewEncoder(w).Encode(map[string]interface{}{"value": []map[string]interface{}{}})
+	}))
+	defer server.Close()
+
+	query := url.Values{}
+	query.Set("$filter", "CreatedAt ge 2026-09-30T00:00:00+02:00")
+	_, err := newTestClient(server.URL).GetRecords(context.Background(), "Logs", query)
+	assert.NoError(t, err)
+}
+
+func TestCreateRecord_NoContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	record, err := newTestClient(server.URL).CreateRecord(context.Background(), "Logs", map[string]interface{}{"Status": 200})
+	assert.NoError(t, err)
+	assert.Nil(t, record)
+}
+
+func TestCreateRecord_ReturnsCreatedRecord(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{"ID": 42, "Status": 200})
+	}))
+	defer server.Close()
+
+	record, err := newTestClient(server.URL).CreateRecord(context.Background(), "Logs", map[string]interface{}{"Status": 200})
+	assert.NoError(t, err)
+	assert.Equal(t, float64(42), record["ID"])
+}
+
+func TestCreateRecord_ErrorStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"code":"-1","message":"bad field"}}`, http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	_, err := newTestClient(server.URL).CreateRecord(context.Background(), "Logs", map[string]interface{}{"Nope": 1})
+	assert.ErrorContains(t, err, "status 400")
+}

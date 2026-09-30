@@ -66,6 +66,8 @@ if err != nil {
 }
 ```
 
+FileMaker returns at most 10,000 records per response, plus an `@odata.nextLink` to the next page. `GetRecords` follows `nextLink` until every page has been read and returns all records, so a large result set is never cut off silently. Use `$top`/`$skip` to limit it yourself. For safety, `nextLink` is only followed on the configured server (same scheme and host), because every request carries the Basic auth credentials; a link elsewhere, or a link that repeats, returns an error.
+
 #### Get Single Record
 
 ```go
@@ -82,6 +84,8 @@ data := map[string]interface{}{
 
 record, err := client.CreateRecord(context.Background(), "TableName", data)
 ```
+
+`CreateRecord` returns the created record for `200 OK`/`201 Created`. When the server answers `204 No Content` (for example if FileMaker honors a `Prefer: return=minimal` request), it returns `nil, nil`.
 
 #### Update Record
 
