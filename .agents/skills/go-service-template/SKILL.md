@@ -57,7 +57,9 @@ type Store interface {
     Ping(ctx context.Context) error
     // GetLogs returns the entries with from <= CreatedAt < to, oldest first.
     GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error)
-    LogRequest(ctx context.Context, entry types.UsageLog) error
+    // LogRequests persists a batch, all or nothing where the backend supports it.
+    // Wrap errors that retrying cannot fix with store.Permanent.
+    LogRequests(ctx context.Context, entries []types.UsageLog) error
     Close() error
 }
 ```
@@ -120,7 +122,7 @@ err := fmt.Errorf("load user: %w", ReturnWithHTTPStatus(baseErr, http.StatusNotF
 ```go
 type Config struct {
     Handler  *handlers.Handler
-    Store    store.Store
+    LogSink  LogSink // Required when any route has UseLogger; logqueue.Queue
     Settings types.AppSettings
     Assets   fs.FS
     Version  string
@@ -174,7 +176,7 @@ for _, route := range GetRoutes(cfg.Handler) {
 
     fn := route.HandlerFunc
     if route.UseLogger {
-        fn = LoggerMiddleware(cfg.Store, l)(fn)
+        fn = LoggerMiddleware(cfg.LogSink, l)(fn)
     }
     if route.UseAuth {
         fn = AuthMiddleware(cfg.Settings.AuthToken, l)(fn)
@@ -260,11 +262,20 @@ if handlerErr != nil {
     // WrapHandler writes the error response after this returns.
     status = httperror.HTTPStatus(handlerErr)
 }
-// Persist requestBody, writer.body, status, endpoint, and handlerErr.
+// Build a types.UsageLog from requestBody, writer.body, status, endpoint and
+// handlerErr, and hand it off without blocking.
+sink.Enqueue(entry)
 return handlerErr
 ```
 
-Apply auth outside the logger so unauthorized request bodies are never persisted. Persistence failures should be logged with `l.Errorf` without replacing the handler's response error.
+Apply auth outside the logger so unauthorized request bodies are never persisted.
+
+The middleware never writes to the store itself: a slow or unavailable store must not slow down or fail a request. `logqueue.Queue` writes entries from one background worker:
+
+- A bounded queue (1000 entries); when it is full, new entries are dropped with at most one warning per minute that carries the count.
+- Batches of up to 50 entries or 1 second, written with `Store.LogRequests` (one SQL transaction per batch).
+- A failed batch is retried with doubling backoff for about 30 seconds, then dropped and logged; errors wrapped with `store.Permanent` are dropped at once.
+- The service closes the queue after the HTTP server has shut down, draining it for up to 5 more seconds before the store is closed; entries left after that are counted and logged as an error. The drain deadline overrides the retry schedule.
 
 ## Service Lifecycle
 

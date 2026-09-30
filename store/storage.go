@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/johansundell/template-service/types"
@@ -14,8 +16,30 @@ type Store interface {
 	Ping(ctx context.Context) error
 	// GetLogs returns the entries with from <= CreatedAt < to, oldest first.
 	GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error)
-	LogRequest(ctx context.Context, entry types.UsageLog) error
+	// LogRequests persists a batch of entries, all or nothing where the
+	// backend supports it. Wrap errors that retrying cannot fix with Permanent.
+	LogRequests(ctx context.Context, entries []types.UsageLog) error
 	Close() error
+}
+
+type permanentError struct{ err error }
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
+
+// Permanent marks err as one that retrying will not fix, such as a rejected
+// record, so the log writer drops the batch instead of retrying it.
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentError{err: err}
+}
+
+// IsPermanent reports whether err was marked with Permanent.
+func IsPermanent(err error) bool {
+	var p permanentError
+	return errors.As(err, &p)
 }
 
 // SQLStore keeps request logs in a SQL database (SQLite or MySQL).
@@ -33,10 +57,29 @@ func (s *SQLStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *SQLStore) LogRequest(ctx context.Context, entry types.UsageLog) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO request_logs (status, method, error, endpoint, created_at, response, request) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		entry.Status, entry.Method, entry.Error, entry.Endpoint, s.timeArg(entry.CreatedAt), string(entry.Response), string(entry.Request))
-	return err
+// LogRequests writes the batch in one transaction.
+func (s *SQLStore) LogRequests(ctx context.Context, entries []types.UsageLog) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO request_logs (status, method, error, endpoint, created_at, response, request) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, e := range entries {
+		if _, err := stmt.ExecContext(ctx, e.Status, e.Method, e.Error, e.Endpoint, s.timeArg(e.CreatedAt), string(e.Response), string(e.Request)); err != nil {
+			return fmt.Errorf("insert request log: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *SQLStore) GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error) {

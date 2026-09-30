@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/types"
 )
 
@@ -97,5 +99,41 @@ func TestRun_ServeFailureIsReported(t *testing.T) {
 	// run has already returned, so Stop must return its error without blocking.
 	if err := p.Stop(nil); err == nil || !strings.Contains(err.Error(), "accept failed") {
 		t.Errorf("expected Stop to return the serve error, got %v", err)
+	}
+}
+
+func TestStop_DrainsRequestLogs(t *testing.T) {
+	addr := freeAddr(t)
+	useTestSettings(t, addr)
+
+	p := newProgram()
+	if err := p.startWorker(); err != nil {
+		t.Fatalf("expected startup to succeed, got %v", err)
+	}
+
+	// Logged route; the entry waits in the queue (flush interval 1s).
+	resp, err := http.Get("http://" + addr + "/ping/drained")
+	if err != nil {
+		t.Fatalf("expected the request to succeed, got %v", err)
+	}
+	resp.Body.Close()
+
+	// Stop right away: draining must write the entry before the store closes.
+	if err := p.Stop(nil); err != nil {
+		t.Fatalf("expected Stop to succeed, got %v", err)
+	}
+
+	st, err := store.NewSQLite(settings.SqlitePath)
+	if err != nil {
+		t.Fatalf("failed to reopen the database: %v", err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	logs, err := st.GetLogs(context.Background(), now.Add(-time.Hour), now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("GetLogs failed: %v", err)
+	}
+	if len(logs) != 1 || !strings.HasSuffix(logs[0].Endpoint, "/ping/drained") {
+		t.Errorf("expected the /ping/drained entry to be persisted on Stop, got %+v", logs)
 	}
 }

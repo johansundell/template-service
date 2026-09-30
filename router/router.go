@@ -17,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/httperror"
-	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/types"
 	"github.com/johansundell/template-service/utils"
 )
@@ -59,10 +58,16 @@ func (stdLogger) Errorf(format string, v ...interface{}) {
 	log.Printf("ERROR: "+format, v...)
 }
 
+// LogSink receives request log entries. It must not block; logqueue.Queue
+// writes them to the store in the background.
+type LogSink interface {
+	Enqueue(entry types.UsageLog)
+}
+
 // Config contains the dependencies and settings required to construct a router
 type Config struct {
 	Handler  *handlers.Handler
-	Store    store.Store
+	LogSink  LogSink // Required when any route has UseLogger
 	Settings types.AppSettings
 	Assets   fs.FS
 	Version  string
@@ -91,8 +96,8 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		if route.UseAuth && cfg.Settings.AuthToken == "" {
 			return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
 		}
-		if route.UseLogger && cfg.Store == nil {
-			return nil, fmt.Errorf("store must be configured for logged route %q", route.Name)
+		if route.UseLogger && cfg.LogSink == nil {
+			return nil, fmt.Errorf("log sink must be configured for logged route %q", route.Name)
 		}
 
 		fn := route.HandlerFunc
@@ -100,7 +105,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		// Apply Logger Middleware first (innermost), so it only runs after auth passes.
 		// Wrapping order is inside-out: the last wrapper applied is the first to execute.
 		if route.UseLogger {
-			fn = LoggerMiddleware(cfg.Store, l)(fn)
+			fn = LoggerMiddleware(cfg.LogSink, l)(fn)
 		}
 
 		// Apply Auth Middleware second (outermost), so it executes first and rejects
@@ -201,8 +206,9 @@ func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
 // and stores; larger requests are rejected with 413.
 const maxRequestBodyBytes = 1 << 20
 
-// LoggerMiddleware logs requests and responses using the provided Store and Logger
-func LoggerMiddleware(s store.Store, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
+// LoggerMiddleware captures each request and response and hands the entry to
+// sink; persisting it happens in the background.
+func LoggerMiddleware(sink LogSink, l Logger) func(HandlerFuncWithError) HandlerFuncWithError {
 	if l == nil {
 		l = stdLogger{}
 	}
@@ -261,12 +267,7 @@ func LoggerMiddleware(s store.Store, l Logger) func(HandlerFuncWithError) Handle
 				usageLog.Request = types.RawJSON("{}")
 			}
 
-			// Persist request log; if persistence fails, record the error to logger
-			if persistErr := s.LogRequest(c.Request.Context(), usageLog); persistErr != nil {
-				l.Errorf("failed to persist request log: %v", persistErr)
-			} else {
-				l.Infof("request logged: %s %s %d", usageLog.Method, usageLog.Endpoint, usageLog.Status)
-			}
+			sink.Enqueue(usageLog)
 
 			return err
 		}

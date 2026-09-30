@@ -20,7 +20,7 @@ These endpoints require an `Authorization` header with the configured `AUTH_TOKE
   - Echo endpoint. Accepts a JSON body and returns `{"message": <input>}`.
 
 - **GET /logs/:from/:to**
-  - Retrieve usage logs within a date range, oldest first.
+  - Retrieve usage logs within a date range, oldest first. Logs are written in the background, so the newest entries can take up to about a second to appear.
   - `:from` and `:to` are dates in `YYYY-MM-DD` format and mean whole **UTC** days: from `:from` 00:00Z up to, not including, the day after `:to`. Timestamps are stored in UTC.
 
 ## Service Management
@@ -49,7 +49,7 @@ The application can be installed as a system service.
 - **Authentication**: Simple token-based authentication for protected routes.
 - **Docker Ready**: Includes `Dockerfile` and `docker-compose.yml` for easy containerization.
 - **Asset Management**: Supports embedding assets or serving from the file system.
-- **Logging**: Request logging to database.
+- **Logging**: Request logging to database. Entries are written in the background in batches, so a slow database never slows down requests; `GET /logs` can be up to about a second behind, and pending entries are written when the service stops.
 
 ## Getting Started
 
