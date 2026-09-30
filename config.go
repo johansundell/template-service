@@ -53,9 +53,9 @@ func loadSettings(filenames ...string) {
 		settings.Timeout = 15
 	}
 
-	settings.UseMySQL, _ = strconv.ParseBool(os.Getenv("USE_MYSQL"))
-	if !settings.UseMySQL {
-		settings.UseSqlite = true
+	settings.Storage = strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE")))
+	if settings.Storage == "" {
+		settings.Storage = types.StorageSQLite
 	}
 	settings.SqlitePath = os.Getenv("SQLITE_PATH")
 	if settings.SqlitePath == "" {

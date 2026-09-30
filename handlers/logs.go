@@ -10,6 +10,7 @@ import (
 )
 
 func (h *Handler) GetLogsHandler(c *gin.Context) error {
+	// Dates are whole UTC days: from 00:00Z up to, not including, the day after to.
 	fromStr := c.Param("from")
 	toStr := c.Param("to")
 
@@ -23,10 +24,7 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 		return httperror.ReturnWithHTTPStatus(errors.New("wrong date format in to"), http.StatusBadRequest)
 	}
 
-	// Adjust 'to' date to include the entire day
-	to = to.Add(24 * time.Hour).Add(-1 * time.Second)
-
-	logs, err := h.store.GetLogs(from, to)
+	logs, err := h.store.GetLogs(c.Request.Context(), from, to.AddDate(0, 0, 1))
 	if err != nil {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}

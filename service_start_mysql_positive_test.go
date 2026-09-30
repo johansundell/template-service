@@ -1,56 +1,41 @@
 package main
 
 import (
-	"database/sql"
-	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/johansundell/template-service/store"
+	"github.com/johansundell/template-service/types"
 )
 
-func TestStart_WithMySQLEnv_UsesMockedConstructor(t *testing.T) {
-	if _, err := os.Stat(".env"); err == nil {
-		os.Rename(".env", ".env.bak")
-		defer os.Rename(".env.bak", ".env")
+func TestStart_WithMySQLStorage_UsesMockedConstructor(t *testing.T) {
+	originalSettings := settings
+	settings = types.AppSettings{Port: freeAddr(t), Timeout: 15, Storage: types.StorageMySQL, AuthToken: "test-token"}
+	settings.MySqlSettings.Username = "user"
+	settings.MySqlSettings.Host = "localhost"
+	settings.MySqlSettings.Port = "3306"
+	settings.MySqlSettings.Database = "db"
+	defer func() { settings = originalSettings }()
+
+	// Return a SQLite store instead of connecting to MySQL, and capture the config
+	var captured mysql.Config
+	orig := newMySQLStore
+	newMySQLStore = func(cfg mysql.Config) (store.Store, error) {
+		captured = cfg
+		return store.NewSQLite(filepath.Join(t.TempDir(), "test_mysql_positive.db"))
+	}
+	defer func() { newMySQLStore = orig }()
+
+	p := newProgram()
+	if err := p.startWorker(); err != nil {
+		t.Fatalf("expected startup to succeed, got error: %v", err)
+	}
+	if err := p.Stop(nil); err != nil {
+		t.Fatalf("expected Stop to succeed, got error: %v", err)
 	}
 
-	// Backup envs
-	keys := []string{"USE_MYSQL", "MYSQL_USERNAME", "MYSQL_HOST", "MYSQL_DATABASE", "MYSQL_PORT"}
-	bak := map[string]string{}
-	for _, k := range keys {
-		bak[k] = os.Getenv(k)
+	if captured.Addr != "localhost:3306" || captured.DBName != "db" || captured.User != "user" {
+		t.Errorf("unexpected MySQL config: addr=%q db=%q user=%q", captured.Addr, captured.DBName, captured.User)
 	}
-	defer func() {
-		for k, v := range bak {
-			if v == "" {
-				os.Unsetenv(k)
-			} else {
-				os.Setenv(k, v)
-			}
-		}
-	}()
-
-	os.Setenv("USE_MYSQL", "true")
-	os.Setenv("MYSQL_USERNAME", "user")
-	os.Setenv("MYSQL_HOST", "localhost")
-	os.Setenv("MYSQL_DATABASE", "db")
-	os.Setenv("MYSQL_PORT", "3306")
-	t.Setenv("AUTH_TOKEN", "test-token")
-
-	// Override newMySQLStorage to return an on-disk sqlite DB so initialization succeeds
-	orig := newMySQLStorage
-	newMySQLStorage = func(cfg mysql.Config) (*sql.DB, error) {
-		return store.NewSqliteDatabase("test_mysql_positive.db")
-	}
-	defer func() { newMySQLStorage = orig }()
-
-	p := &program{}
-	if err := p.Start(nil); err != nil {
-		t.Fatalf("expected Start to succeed, got error: %v", err)
-	}
-	// stop immediately
-	p.Stop(nil)
-	// cleanup
-	os.Remove("test_mysql_positive.db")
 }

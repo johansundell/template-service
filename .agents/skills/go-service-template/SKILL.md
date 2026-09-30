@@ -50,20 +50,26 @@ The code examples are illustrative, not compilable. The template-service reposit
 
 ## Storage
 
-Keep the storage contract small and interface-based:
+Keep the storage contract small and interface-based. Every method takes a `context.Context`, so handlers can pass `c.Request.Context()` and a network-backed store stops work when the client leaves:
 
 ```go
 type Store interface {
-    Ping() error
-    GetLogs(from, to time.Time) ([]types.UsageLog, error)
-    LogRequest(status int, method, errStr, endpoint, createdAt, response, request string) error
+    Ping(ctx context.Context) error
+    // GetLogs returns the entries with from <= CreatedAt < to, oldest first.
+    GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error)
+    LogRequest(ctx context.Context, entry types.UsageLog) error
+    Close() error
 }
 ```
+
+`STORAGE` (`sqlite` or `mysql`) selects the backend. Each backend has a constructor that opens and owns its connection (`store.NewSQLite(path)`, `store.NewMySQL(cfg)`); the service opens the configured store, `defer`s `Close()` immediately, then pings it with a short deadline before building the router.
+
+Store timestamps in UTC so ranges compare correctly on any server. SQLite keeps `created_at` as text, so write it in a fixed-width UTC layout; the driver's default RFC3339Nano varies in length and does not sort as a string.
 
 Constructors should close an opened handle if schema creation fails. Set SQLite pragmas in the DSN, not with `db.Exec`: the driver then applies them to every pooled connection, and a bad pragma surfaces as an error on the first statement:
 
 ```go
-func NewSqliteDatabase(file string) (*sql.DB, error) {
+func NewSQLite(file string) (*SQLStore, error) {
     db, err := sql.Open("sqlite3", "file:"+file+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
     if err != nil {
         return nil, err
@@ -72,11 +78,11 @@ func NewSqliteDatabase(file string) (*sql.DB, error) {
         _ = db.Close()
         return nil, err
     }
-    return db, nil
+    return &SQLStore{db: db, timeArg: func(t time.Time) any {
+        return t.UTC().Format("2006-01-02T15:04:05.000000Z07:00")
+    }}, nil
 }
 ```
-
-The service owns a successfully returned `*sql.DB` and should `defer db.Close()` immediately after construction, before pinging or building the router.
 
 ## Typed HTTP Errors
 
@@ -295,18 +301,21 @@ func (p *program) Stop(s service.Service) error {
 }
 
 func (p *program) run(startup chan<- error) error {
-    db, err := openConfiguredDatabase(settings) // repository SQLite/MySQL constructors
+    st, err := openStore() // store constructor chosen by STORAGE
     if err != nil {
         return err
     }
-    defer db.Close()
+    defer st.Close()
 
-    if err := db.Ping(); err != nil {
+    pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    err = st.Ping(pingCtx)
+    cancel()
+    if err != nil {
         return err
     }
     ensureAuthToken() // random temporary token when AUTH_TOKEN is unset
 
-    router, err := buildRouter(db) // repository handler + router.NewRouter wiring
+    router, err := buildRouter(st) // repository handler + router.NewRouter wiring
     if err != nil {
         return err
     }
@@ -331,7 +340,7 @@ func (p *program) run(startup chan<- error) error {
 }
 ```
 
-`openConfiguredDatabase` and `buildRouter` are descriptive placeholders, not repository APIs. The real implementation must propagate database, router, and listener errors, close resources on every exit path, and avoid `log.Fatal` in the worker.
+`buildRouter` is a descriptive placeholder, not a repository API. The real implementation must propagate database, router, and listener errors, close resources on every exit path, and avoid `log.Fatal` in the worker.
 
 ## Adding an Endpoint
 

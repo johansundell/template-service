@@ -29,7 +29,7 @@ func useTestSettings(t *testing.T, port string) {
 	settings = types.AppSettings{
 		Port:       port,
 		Timeout:    15,
-		UseSqlite:  true,
+		Storage:    types.StorageSQLite,
 		SqlitePath: filepath.Join(t.TempDir(), "test_stop.db"),
 		AuthToken:  "test-token",
 	}

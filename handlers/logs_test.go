@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -21,15 +22,15 @@ func TestGetLogsHandler(t *testing.T) {
 	mockFS := fstest.MapFS{}
 
 	// Create in-memory DB
-	db, err := store.NewSqliteDatabase(":memory:")
+	s, err := store.NewSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create db: %v", err)
 	}
-	defer db.Close()
-	s := store.NewStorage(db)
+	defer s.Close()
 
 	// Insert some test data
-	err = s.LogRequest(200, "GET", "", "/test", time.Now().Format(time.RFC3339), "{}", "{}")
+	now := time.Now().UTC()
+	err = s.LogRequest(context.Background(), types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: now, Response: "{}", Request: "{}"})
 	if err != nil {
 		t.Fatalf("Failed to insert log: %v", err)
 	}
@@ -38,11 +39,12 @@ func TestGetLogsHandler(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/logs", nil)
 
-	// Set params
+	// Set params: dates are UTC days
 	c.Params = gin.Params{
-		{Key: "from", Value: time.Now().Format("2006-01-02")},
-		{Key: "to", Value: time.Now().Format("2006-01-02")},
+		{Key: "from", Value: now.Format("2006-01-02")},
+		{Key: "to", Value: now.Format("2006-01-02")},
 	}
 
 	err = h.GetLogsHandler(c)
@@ -62,5 +64,43 @@ func TestGetLogsHandler(t *testing.T) {
 
 	if len(logs) != 1 {
 		t.Errorf("Expected 1 log, got %d", len(logs))
+	}
+}
+
+func TestGetLogsHandler_ToIsInclusiveUTCDay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	s, err := store.NewSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create db: %v", err)
+	}
+	defer s.Close()
+
+	day := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	for endpoint, at := range map[string]time.Time{
+		"/late-on-day": day.Add(23*time.Hour + 59*time.Minute),
+		"/next-day":    day.AddDate(0, 0, 1),
+	} {
+		if err := s.LogRequest(context.Background(), types.UsageLog{Endpoint: endpoint, CreatedAt: at}); err != nil {
+			t.Fatalf("Failed to insert log: %v", err)
+		}
+	}
+
+	h := NewHandler(s, false, fstest.MapFS{}, "test-service", "v1.0")
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/logs", nil)
+	c.Params = gin.Params{{Key: "from", Value: "2026-09-30"}, {Key: "to", Value: "2026-09-30"}}
+
+	if err := h.GetLogsHandler(c); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	var logs []types.UsageLog
+	if err := json.Unmarshal(w.Body.Bytes(), &logs); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+	if len(logs) != 1 || logs[0].Endpoint != "/late-on-day" {
+		t.Errorf("Expected only /late-on-day, got %+v", logs)
 	}
 }

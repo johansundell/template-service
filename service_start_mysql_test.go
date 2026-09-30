@@ -8,9 +8,9 @@ import (
 
 func TestAppSettingsValidate_MySQLMissingRequiredFields(t *testing.T) {
 	settings := types.AppSettings{
-		Port:     ":8080",
-		Timeout:  15,
-		UseMySQL: true,
+		Port:    ":8080",
+		Timeout: 15,
+		Storage: types.StorageMySQL,
 	}
 
 	if err := settings.Validate(); err == nil {

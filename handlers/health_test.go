@@ -20,22 +20,11 @@ func TestHealthCheck(t *testing.T) {
 		"tmpl/health.html": {Data: []byte(`{{define "content"}}Database: {{.dbStatus}}{{end}}`)},
 	}
 
-	// Mock Store (using real sqlite db for simplicity, or we could mock the interface if we had one)
-	// Since we don't have a mock store interface easily available without generating one,
-	// and we want to test "OK" status, we can use a real DB or a nil DB if we handle it.
-	// But wait, the handler calls h.store.Ping().
-	// We can use the same trick as in router_test.go: temporary sqlite db.
-
-	// Actually, let's just use a nil store and expect an error?
-	// No, we want to verify "OK".
-	// So let's create a temp DB.
-
-	db, err := store.NewSqliteDatabase(":memory:") // In-memory DB is faster and easier
+	s, err := store.NewSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create db: %v", err)
 	}
-	defer db.Close()
-	s := store.NewStorage(db)
+	defer s.Close()
 
 	h := NewHandler(s, false, mockFS, "test-service", "v1.0")
 
@@ -66,12 +55,11 @@ func TestHealthCheckJSON(t *testing.T) {
 	// Mock FS (not needed for JSON, but required for NewHandler)
 	mockFS := fstest.MapFS{}
 
-	db, err := store.NewSqliteDatabase(":memory:")
+	s, err := store.NewSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create db: %v", err)
 	}
-	defer db.Close()
-	s := store.NewStorage(db)
+	defer s.Close()
 
 	h := NewHandler(s, false, mockFS, "test-service", "v1.0")
 

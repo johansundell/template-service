@@ -11,9 +11,9 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 		{
 			name: "mysql enabled missing required fields",
 			s: AppSettings{
-				Port:     ":8080",
-				Timeout:  10,
-				UseMySQL: true,
+				Port:    ":8080",
+				Timeout: 10,
+				Storage: StorageMySQL,
 				MySqlSettings: struct {
 					Username string `json:"username"`
 					Password string `json:"password"`
@@ -27,9 +27,9 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 		{
 			name: "mysql enabled with required fields",
 			s: AppSettings{
-				Port:     ":8080",
-				Timeout:  10,
-				UseMySQL: true,
+				Port:    ":8080",
+				Timeout: 10,
+				Storage: StorageMySQL,
 				MySqlSettings: struct {
 					Username string `json:"username"`
 					Password string `json:"password"`
@@ -43,9 +43,9 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 		{
 			name: "mysql enabled with leading colon in port",
 			s: AppSettings{
-				Port:     ":8080",
-				Timeout:  10,
-				UseMySQL: true,
+				Port:    ":8080",
+				Timeout: 10,
+				Storage: StorageMySQL,
 				MySqlSettings: struct {
 					Username string `json:"username"`
 					Password string `json:"password"`

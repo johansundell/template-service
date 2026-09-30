@@ -1,91 +1,148 @@
 package store
 
 import (
-	"os"
+	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
-	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/johansundell/template-service/types"
 )
 
-func TestLogRequest(t *testing.T) {
-	// Setup temporary database
-	tmpFile := "test_log.db"
-	defer os.Remove(tmpFile)
-
-	db, err := NewSqliteDatabase(tmpFile)
+func newTestSQLite(t *testing.T) *SQLStore {
+	t.Helper()
+	s, err := NewSQLite(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { s.Close() })
+	return s
+}
 
-	s := NewStorage(db)
+func TestLogRequest(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
 
-	// Test LogRequest
-	err = s.LogRequest(200, "GET", "", "/test", time.Now().Format(time.RFC3339), "{}", "{}")
+	err := s.LogRequest(ctx, types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: time.Now(), Response: "{}", Request: "{}"})
 	if err != nil {
 		t.Errorf("LogRequest failed: %v", err)
 	}
 
-	// Verify log entry
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&count)
-	if err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&count); err != nil {
 		t.Fatalf("Failed to query logs: %v", err)
 	}
-
 	if count != 1 {
 		t.Errorf("Expected 1 log entry, got %d", count)
 	}
 }
 
-func TestGetLogs(t *testing.T) {
-	tmpFile := "test_get_logs.db"
-	defer os.Remove(tmpFile)
+func TestLogRequest_StoresFixedWidthUTC(t *testing.T) {
+	s := newTestSQLite(t)
 
-	db, err := NewSqliteDatabase(tmpFile)
-	if err != nil {
-		t.Fatalf("Failed to create database: %v", err)
-	}
-	defer db.Close()
-
-	s := NewStorage(db)
-
-	now := time.Now()
-	err = s.LogRequest(200, "GET", "", "/test", now.Format(time.RFC3339), "{}", "{}")
-	if err != nil {
+	cest := time.FixedZone("CEST", 2*60*60)
+	created := time.Date(2026, 9, 30, 23, 30, 0, 0, cest)
+	if err := s.LogRequest(context.Background(), types.UsageLog{Endpoint: "/utc", CreatedAt: created}); err != nil {
 		t.Fatalf("LogRequest failed: %v", err)
 	}
 
-	from := now.Add(-1 * time.Hour)
-	to := now.Add(1 * time.Hour)
-	logs, err := s.GetLogs(from, to)
+	var raw string
+	if err := s.db.QueryRow("SELECT CAST(created_at AS TEXT) FROM request_logs").Scan(&raw); err != nil {
+		t.Fatalf("Failed to read created_at: %v", err)
+	}
+	if want := "2026-09-30T21:30:00.000000Z"; raw != want {
+		t.Errorf("Expected created_at %q, got %q", want, raw)
+	}
+}
+
+func TestGetLogs(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	now := time.Now()
+	if err := s.LogRequest(ctx, types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: now, Response: "{}", Request: "{}"}); err != nil {
+		t.Fatalf("LogRequest failed: %v", err)
+	}
+
+	logs, err := s.GetLogs(ctx, now.Add(-time.Hour), now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("GetLogs failed: %v", err)
 	}
-
 	if len(logs) != 1 {
 		t.Fatalf("Expected 1 log entry, got %d", len(logs))
 	}
 	if logs[0].Endpoint != "/test" {
 		t.Errorf("Expected endpoint /test, got %s", logs[0].Endpoint)
 	}
+	if !logs[0].CreatedAt.Equal(now.Truncate(time.Microsecond)) {
+		t.Errorf("Expected CreatedAt %v, got %v", now, logs[0].CreatedAt)
+	}
 }
 
-func TestNewSqliteDatabase_Pragmas(t *testing.T) {
-	tmpFile := "test_pragmas.db"
-	defer os.Remove(tmpFile)
-	defer os.Remove(tmpFile + "-wal")
-	defer os.Remove(tmpFile + "-shm")
+// Entries are written with a non-UTC offset; the range is a whole UTC day.
+// Comparing RFC3339 strings with mixed offsets used to drop entries near midnight.
+func TestGetLogs_UTCDayBoundaries(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
 
-	db, err := NewSqliteDatabase(tmpFile)
+	cest := time.FixedZone("CEST", 2*60*60)
+	dayStart := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	dayEnd := dayStart.AddDate(0, 0, 1)
+
+	entries := []struct {
+		endpoint string
+		at       time.Time
+	}{
+		{"before", dayStart.Add(-time.Microsecond)},
+		{"at-start", dayStart},
+		{"sub-second", dayStart.Add(500 * time.Millisecond)},
+		{"late-cest", time.Date(2026, 10, 1, 0, 30, 0, 0, cest)}, // 22:30Z on the 30th
+		{"at-end", dayEnd},
+	}
+	for _, e := range entries {
+		if err := s.LogRequest(ctx, types.UsageLog{Endpoint: e.endpoint, CreatedAt: e.at}); err != nil {
+			t.Fatalf("LogRequest(%s) failed: %v", e.endpoint, err)
+		}
+	}
+
+	logs, err := s.GetLogs(ctx, dayStart, dayEnd)
+	if err != nil {
+		t.Fatalf("GetLogs failed: %v", err)
+	}
+
+	var got []string
+	for _, l := range logs {
+		got = append(got, l.Endpoint)
+	}
+	want := []string{"at-start", "sub-second", "late-cest"}
+	if len(got) != len(want) {
+		t.Fatalf("Expected endpoints %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Expected endpoints %v in order, got %v", want, got)
+		}
+	}
+}
+
+func TestClose(t *testing.T) {
+	s, err := NewSQLite(filepath.Join(t.TempDir(), "close.db"))
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if err := s.Ping(context.Background()); err == nil {
+		t.Error("Expected Ping to fail after Close")
+	}
+}
+
+func TestNewSQLite_Pragmas(t *testing.T) {
+	s := newTestSQLite(t)
 
 	var journalMode string
-	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+	if err := s.db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
 		t.Fatalf("Failed to query journal_mode: %v", err)
 	}
 	if journalMode != "wal" {
@@ -93,7 +150,7 @@ func TestNewSqliteDatabase_Pragmas(t *testing.T) {
 	}
 
 	var busyTimeout int
-	if err := db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+	if err := s.db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
 		t.Fatalf("Failed to query busy_timeout: %v", err)
 	}
 	if busyTimeout != 5000 {

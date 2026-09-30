@@ -1,38 +1,46 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
 	"github.com/johansundell/template-service/types"
 )
 
-type Storage struct {
-	db *sql.DB
-}
-
-func NewStorage(db *sql.DB) *Storage {
-	return &Storage{db: db}
-}
-
+// Store is the storage contract handlers and middleware depend on. Each
+// backend owns its connection; the caller must Close it.
 type Store interface {
-	Ping() error
-	GetLogs(from, to time.Time) ([]types.UsageLog, error)
-	LogRequest(status int, method, errStr, endpoint string, createdAt string, response, request string) error
+	Ping(ctx context.Context) error
+	// GetLogs returns the entries with from <= CreatedAt < to, oldest first.
+	GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error)
+	LogRequest(ctx context.Context, entry types.UsageLog) error
+	Close() error
 }
 
-func (s *Storage) Ping() error {
-	return s.db.Ping()
+// SQLStore keeps request logs in a SQL database (SQLite or MySQL).
+type SQLStore struct {
+	db *sql.DB
+	// timeArg converts a timestamp into the driver argument for created_at.
+	timeArg func(time.Time) any
 }
 
-func (s *Storage) LogRequest(status int, method, errStr, endpoint string, createdAt string, response, request string) error {
-	_, err := s.db.Exec(`INSERT INTO request_logs (status, method, error, endpoint, created_at, response, request) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		status, method, errStr, endpoint, createdAt, response, request)
+func (s *SQLStore) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
+func (s *SQLStore) Close() error {
+	return s.db.Close()
+}
+
+func (s *SQLStore) LogRequest(ctx context.Context, entry types.UsageLog) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO request_logs (status, method, error, endpoint, created_at, response, request) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		entry.Status, entry.Method, entry.Error, entry.Endpoint, s.timeArg(entry.CreatedAt), string(entry.Response), string(entry.Request))
 	return err
 }
 
-func (s *Storage) GetLogs(from, to time.Time) ([]types.UsageLog, error) {
-	rows, err := s.db.Query(`SELECT id, status, method, error, endpoint, created_at, response, request FROM request_logs WHERE created_at BETWEEN ? AND ?`, from.Format(time.RFC3339), to.Format(time.RFC3339))
+func (s *SQLStore) GetLogs(ctx context.Context, from, to time.Time) ([]types.UsageLog, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, status, method, error, endpoint, created_at, response, request FROM request_logs WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id`, s.timeArg(from), s.timeArg(to))
 	if err != nil {
 		return nil, err
 	}
