@@ -206,3 +206,50 @@ func TestGetLogsHandler_InvalidPaging(t *testing.T) {
 		t.Errorf("limit=10000 should be allowed, got %v", err)
 	}
 }
+
+func TestGetLogsHandler_NonJSONBodies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	s, err := store.NewSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create db: %v", err)
+	}
+	defer s.Close()
+
+	day := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	entries := []types.UsageLog{
+		{Endpoint: "/ping/bad", CreatedAt: day.Add(time.Hour), Request: "hello", Response: `{"result":"bad"}`},
+		{Endpoint: "/ping/notfound", CreatedAt: day.Add(2 * time.Hour), Request: "{}", Response: "Not Found"},
+	}
+	if err := s.LogRequests(context.Background(), entries); err != nil {
+		t.Fatalf("Failed to insert logs: %v", err)
+	}
+
+	h := mustNewHandler(t, s, false, fstest.MapFS{}, "test-service", "v1.0")
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/logs/2026-09-30/2026-09-30", nil)
+	c.Params = gin.Params{{Key: "from", Value: "2026-09-30"}, {Key: "to", Value: "2026-09-30"}}
+
+	if err := h.GetLogsHandler(c); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	var page struct {
+		Entries []map[string]json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
+		t.Fatalf("Expected a parseable page, got %q: %v", w.Body.String(), err)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("Expected 2 entries, got %d", len(page.Entries))
+	}
+	if got := string(page.Entries[0]["request"]); got != `"hello"` {
+		t.Errorf("Expected the plain-text request as a JSON string, got %s", got)
+	}
+	if got := string(page.Entries[0]["response"]); got != `{"result":"bad"}` {
+		t.Errorf("Expected the JSON response unchanged, got %s", got)
+	}
+	if got := string(page.Entries[1]["response"]); got != `"Not Found"` {
+		t.Errorf("Expected the plain-text response as a JSON string, got %s", got)
+	}
+}
