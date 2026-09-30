@@ -23,3 +23,6 @@
 
 # Written by the code-review skill
 CODE_REVIEW.md
+
+# Local Docker data folder, if you bind-mount one
+/data/

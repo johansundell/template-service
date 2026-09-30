@@ -138,7 +138,15 @@ To run the service using Docker Compose:
 docker compose up --build
 ```
 
-This will start the service on port 8080 and mount `./data` to `/app/data` to persist SQLite database files (including WAL and SHM files).
+This will start the service on port 8080, with the SQLite database (including its WAL and SHM files) in the named Docker volume `data`, mounted at `/app/data`. The volume keeps the data across `docker compose down` and rebuilds; **`docker compose down -v` deletes it**.
+
+The service runs as a non-root user, and a named volume gets the right ownership automatically. A host folder like `./data` usually belongs to your own user and makes SQLite fail with `permission denied`; if you need one, `chown` it to the container user first (`docker compose run --rm --entrypoint id template-service` shows the uid and gid).
+
+To copy the database out, for a backup or to inspect it:
+
+```bash
+docker compose cp template-service:/app/data/template-service.db ./template-service.db
+```
 
 Inside the container the service always listens on **8080** (the image sets `PORT=:8080`), which the image's `EXPOSE` and health check rely on. Choose the port on the host instead: `HOST_PORT=9090 docker compose up`, or `docker run -p 9090:8080 ...`. Don't set `PORT` for the container. The health check calls `GET /`, so the container turns unhealthy when the storage backend is unreachable.
 
