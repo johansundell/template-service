@@ -131,23 +131,12 @@ func (c *Client) DeleteIndex(ctx context.Context, tableName string, indexName st
 	return nil
 }
 
-// Ping checks the connection to the FileMaker OData API
+// Ping checks the connection to the FileMaker OData API by requesting the
+// database's service document.
 func (c *Client) Ping(ctx context.Context) error {
-	// Request the service document (base URL)
-	req, err := http.NewRequest("GET", c.baseURL, nil)
+	resp, err := c.sendRequest(ctx, http.MethodGet, c.baseURL, nil)
 	if err != nil {
 		return err
 	}
-
-	resp, err := c.doRequest(ctx, req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return c.handleError(resp)
-	}
-
-	return nil
+	return resp.Body.Close()
 }

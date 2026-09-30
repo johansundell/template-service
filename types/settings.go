@@ -57,9 +57,6 @@ func (s AppSettings) Validate() error {
 		if s.MySqlSettings.Username == "" || s.MySqlSettings.Host == "" || s.MySqlSettings.Database == "" {
 			return fmt.Errorf("MYSQL_USERNAME, MYSQL_HOST and MYSQL_DATABASE must be set when STORAGE=mysql")
 		}
-		if strings.HasPrefix(s.MySqlSettings.Port, ":") {
-			return fmt.Errorf("MYSQL_PORT must not contain leading ':'")
-		}
 	case StorageFileMaker:
 		fm := s.FileMaker
 		if fm.Host == "" || fm.Database == "" || fm.Username == "" || fm.Password == "" {

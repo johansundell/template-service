@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func TestHealthCheck(t *testing.T) {
 	}
 	defer s.Close()
 
-	h := NewHandler(s, false, mockFS, "test-service", "v1.0")
+	h := mustNewHandler(t, s, false, mockFS, "test-service", "v1.0")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -62,7 +63,7 @@ func TestHealthCheckJSON(t *testing.T) {
 	}
 	defer s.Close()
 
-	h := NewHandler(s, false, mockFS, "test-service", "v1.0")
+	h := mustNewHandler(t, s, false, mockFS, "test-service", "v1.0")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -100,7 +101,7 @@ func TestHealthCheck_StorageDownReturns503(t *testing.T) {
 		"tmpl/base.html":   {Data: []byte(`{{define "base"}}{{template "content" .}}{{end}}`)},
 		"tmpl/health.html": {Data: []byte(`{{define "content"}}Database: {{.dbStatus}}{{end}}`)},
 	}
-	h := NewHandler(s, false, mockFS, "test-service", "v1.0")
+	h := mustNewHandler(t, s, false, mockFS, "test-service", "v1.0")
 
 	for _, accept := range []string{"application/json", "text/html"} {
 		w := httptest.NewRecorder()
@@ -117,5 +118,23 @@ func TestHealthCheck_StorageDownReturns503(t *testing.T) {
 		if !strings.Contains(w.Body.String(), "closed") {
 			t.Errorf("%s: expected the storage error in the body, got %q", accept, w.Body.String())
 		}
+	}
+}
+
+func mustNewHandler(t *testing.T, s store.Store, ufs bool, fsys fs.FS, name, version string) *Handler {
+	t.Helper()
+	h, err := NewHandler(s, ufs, fsys, name, version)
+	if err != nil {
+		t.Fatalf("NewHandler failed: %v", err)
+	}
+	return h
+}
+
+func TestNewHandler_RequiresTemplatesInEmbeddedMode(t *testing.T) {
+	if _, err := NewHandler(nil, false, nil, "test", "dev"); err == nil {
+		t.Error("expected an error for a nil templates filesystem in embedded mode")
+	}
+	if _, err := NewHandler(nil, true, nil, "test", "dev"); err != nil {
+		t.Errorf("expected filesystem mode to work without an embedded FS, got %v", err)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -111,14 +110,19 @@ func (p *program) run(startup chan<- error) error {
 	// Request logs are written in the background. The deferred Close runs after
 	// the HTTP server has shut down, drains the queue for up to 5 more seconds
 	// and runs before the store is closed.
-	logQueue := logqueue.New(st, serviceLoggerAdapter{logger: logger})
+	logQueue := logqueue.New(st, appLogger())
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		logQueue.Close(ctx)
 	}()
 
-	handler := handlers.NewHandler(st, settings.UseFileSystem, tpls, nameOfService, Version)
+	handler, err := handlers.NewHandler(st, settings.UseFileSystem, tpls, nameOfService, Version)
+	if err != nil {
+		logError("failed to create handlers: %v", err)
+		startup <- err
+		return err
+	}
 
 	routerEngine, err := router.NewRouter(router.Config{
 		Handler:  handler,
@@ -126,7 +130,7 @@ func (p *program) run(startup chan<- error) error {
 		Settings: settings,
 		Assets:   embededFiles,
 		Version:  Version,
-		Logger:   serviceLoggerAdapter{logger: logger},
+		Logger:   appLogger(),
 	})
 	if err != nil {
 		logError("failed to create router: %v", err)
@@ -228,42 +232,33 @@ func ensureAuthToken() {
 	logWarning("AUTH_TOKEN is not set; using temporary token for this run: %s", settings.AuthToken)
 }
 
-type serviceLoggerAdapter struct {
-	logger service.Logger
+// serviceLogger adapts the kardianos/service logger, whose methods return an
+// error, to router.Logger.
+type serviceLogger struct {
+	l service.Logger
 }
 
-func (a serviceLoggerAdapter) Infof(format string, v ...interface{}) {
-	if a.logger != nil {
-		a.logger.Infof(format, v...)
-	} else {
-		log.Printf(format, v...)
-	}
-}
+func (s serviceLogger) Infof(format string, v ...interface{})    { s.l.Infof(format, v...) }
+func (s serviceLogger) Warningf(format string, v ...interface{}) { s.l.Warningf(format, v...) }
+func (s serviceLogger) Errorf(format string, v ...interface{})   { s.l.Errorf(format, v...) }
 
-func (a serviceLoggerAdapter) Warningf(format string, v ...interface{}) {
-	if a.logger != nil {
-		a.logger.Warningf(format, v...)
-	} else {
-		log.Printf("WARNING: "+format, v...)
+// appLogger returns the service manager's logger, or the standard logger
+// before one is set up (tests, early startup).
+func appLogger() router.Logger {
+	if logger == nil {
+		return router.StdLogger{}
 	}
-}
-
-func (a serviceLoggerAdapter) Errorf(format string, v ...interface{}) {
-	if a.logger != nil {
-		a.logger.Errorf(format, v...)
-	} else {
-		log.Printf("ERROR: "+format, v...)
-	}
+	return serviceLogger{l: logger}
 }
 
 func logInfo(format string, v ...interface{}) {
-	serviceLoggerAdapter{logger: logger}.Infof(format, v...)
+	appLogger().Infof(format, v...)
 }
 
 func logWarning(format string, v ...interface{}) {
-	serviceLoggerAdapter{logger: logger}.Warningf(format, v...)
+	appLogger().Warningf(format, v...)
 }
 
 func logError(format string, v ...interface{}) {
-	serviceLoggerAdapter{logger: logger}.Errorf(format, v...)
+	appLogger().Errorf(format, v...)
 }

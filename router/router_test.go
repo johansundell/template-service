@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -35,7 +36,7 @@ func TestAuthCheck(t *testing.T) {
 	}
 	defer s.Close()
 
-	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
+	h := mustNewHandler(t, s, false, fstest.MapFS{}, "test", "dev")
 
 	r, err := router.NewRouter(router.Config{
 		Handler:  h,
@@ -112,7 +113,7 @@ func TestStartupAuthValidation(t *testing.T) {
 	}
 
 	mockStore := nopStore{}
-	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
+	h := mustNewHandler(t, mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	_, err := router.NewRouter(router.Config{
 		Handler:  h,
@@ -176,7 +177,7 @@ func TestWrapHandler_VersionHeader(t *testing.T) {
 
 func TestGetRoutes(t *testing.T) {
 	mockStore := nopStore{}
-	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
+	h := mustNewHandler(t, mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	routes := router.GetRoutes(h)
 	if len(routes) == 0 {
@@ -245,7 +246,7 @@ func TestStartupLogSinkValidation(t *testing.T) {
 		AuthToken: "secret-token",
 	}
 
-	h := handlers.NewHandler(nil, false, fstest.MapFS{}, "test", "dev")
+	h := mustNewHandler(t, nil, false, fstest.MapFS{}, "test", "dev")
 
 	_, err := router.NewRouter(router.Config{
 		Handler:  h,
@@ -265,7 +266,7 @@ func TestNewRouter_EmbeddedModeNilAssetsReturnsError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockStore := nopStore{}
-	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
+	h := mustNewHandler(t, mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	_, err := router.NewRouter(router.Config{
 		Handler:  h,
@@ -287,7 +288,7 @@ func TestNewRouter_FileSystemModeNilAssetsSucceeds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockStore := nopStore{}
-	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
+	h := mustNewHandler(t, mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	r, err := router.NewRouter(router.Config{
 		Handler:  h,
@@ -346,7 +347,7 @@ func TestNewRouter_InjectedLogger(t *testing.T) {
 	}
 	defer s.Close()
 
-	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
+	h := mustNewHandler(t, s, false, fstest.MapFS{}, "test", "dev")
 
 	tl := &testLogger{}
 	sink := &recordingSink{}
@@ -583,4 +584,13 @@ func TestLoggerMiddleware_CapturesWriteString(t *testing.T) {
 	if w.Body.String() != `{"via":"WriteString"}` {
 		t.Errorf("Expected client response %q, got %q", `{"via":"WriteString"}`, w.Body.String())
 	}
+}
+
+func mustNewHandler(t *testing.T, s store.Store, ufs bool, fsys fs.FS, name, version string) *handlers.Handler {
+	t.Helper()
+	h, err := handlers.NewHandler(s, ufs, fsys, name, version)
+	if err != nil {
+		t.Fatalf("NewHandler failed: %v", err)
+	}
+	return h
 }

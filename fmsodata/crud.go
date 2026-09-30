@@ -1,7 +1,6 @@
 package fmsodata
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -46,20 +45,11 @@ func (c *Client) GetRecords(ctx context.Context, tableName string, query url.Val
 
 func (c *Client) getPage(ctx context.Context, pageURL string) (ODataResponse, error) {
 	var page ODataResponse
-	req, err := http.NewRequest("GET", pageURL, nil)
-	if err != nil {
-		return page, err
-	}
-
-	resp, err := c.doRequest(ctx, req)
+	resp, err := c.sendRequest(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return page, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return page, c.handleError(resp)
-	}
 
 	err = json.NewDecoder(resp.Body).Decode(&page)
 	return page, err
@@ -86,27 +76,16 @@ func (c *Client) resolveNextLink(current *url.URL, link string) (*url.URL, error
 
 // GetRecord retrieves a single record by ID
 func (c *Client) GetRecord(ctx context.Context, tableName string, id string) (map[string]interface{}, error) {
-	url := fmt.Sprintf("%s/%s('%s')", c.baseURL, tableName, id)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.doRequest(ctx, req)
+	resp, err := c.sendRequest(ctx, http.MethodGet, fmt.Sprintf("%s/%s('%s')", c.baseURL, tableName, id), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, c.handleError(resp)
-	}
-
 	var record map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&record); err != nil {
 		return nil, err
 	}
-
 	return record, nil
 }
 
@@ -114,86 +93,37 @@ func (c *Client) GetRecord(ctx context.Context, tableName string, id string) (ma
 // when the server answers 204 No Content (for example when the request asked
 // for Prefer: return=minimal).
 func (c *Client) CreateRecord(ctx context.Context, tableName string, data map[string]interface{}) (map[string]interface{}, error) {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
-	}
-
-	url := fmt.Sprintf("%s/%s", c.baseURL, tableName)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.doRequest(ctx, req)
+	resp, err := c.sendRequest(ctx, http.MethodPost, fmt.Sprintf("%s/%s", c.baseURL, tableName), data)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	switch resp.StatusCode {
-	case http.StatusNoContent:
-		return nil, nil
-	case http.StatusCreated, http.StatusOK:
-	default:
-		return nil, c.handleError(resp)
-	}
-
 	var record map[string]interface{}
-	if resp.ContentLength != 0 {
+	if resp.StatusCode != http.StatusNoContent && resp.ContentLength != 0 {
 		if err := json.NewDecoder(resp.Body).Decode(&record); err != nil && err != io.EOF {
 			return nil, err
 		}
 	}
-
 	return record, nil
 }
 
 // UpdateRecord updates an existing record
 func (c *Client) UpdateRecord(ctx context.Context, tableName string, id string, data map[string]interface{}) error {
-	jsonData, err := json.Marshal(data)
+	resp, err := c.sendRequest(ctx, http.MethodPatch, fmt.Sprintf("%s/%s('%s')", c.baseURL, tableName, id), data)
 	if err != nil {
 		return err
 	}
-
-	url := fmt.Sprintf("%s/%s('%s')", c.baseURL, tableName, id)
-	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-
-	resp, err := c.doRequest(ctx, req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return c.handleError(resp)
-	}
-
-	return nil
+	return resp.Body.Close()
 }
 
 // DeleteRecord deletes a record
 func (c *Client) DeleteRecord(ctx context.Context, tableName string, id string) error {
-	url := fmt.Sprintf("%s/%s('%s')", c.baseURL, tableName, id)
-	req, err := http.NewRequest("DELETE", url, nil)
+	resp, err := c.sendRequest(ctx, http.MethodDelete, fmt.Sprintf("%s/%s('%s')", c.baseURL, tableName, id), nil)
 	if err != nil {
 		return err
 	}
-
-	resp, err := c.doRequest(ctx, req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return c.handleError(resp)
-	}
-
-	return nil
+	return resp.Body.Close()
 }
 
 // StatusError is returned when the server answers with an error status.

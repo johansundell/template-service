@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"io/fs"
 	"path/filepath"
 	"text/template"
@@ -17,14 +18,19 @@ type Handler struct {
 	versionOfService string
 }
 
-func NewHandler(s store.Store, ufs bool, f fs.FS, name, version string) *Handler {
+// NewHandler creates the handlers. In embedded mode (ufs false) the
+// templates filesystem f is required.
+func NewHandler(s store.Store, ufs bool, f fs.FS, name, version string) (*Handler, error) {
+	if !ufs && f == nil {
+		return nil, errors.New("embedded templates filesystem is nil")
+	}
 	return &Handler{
 		store:            s,
 		useFileSystem:    ufs,
 		tpls:             f,
 		nameOfService:    name,
 		versionOfService: version,
-	}
+	}, nil
 }
 
 func (h *Handler) getTemplate(withBase bool, tmplFile ...string) (*template.Template, error) {
