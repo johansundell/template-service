@@ -43,7 +43,7 @@ These endpoints require an `Authorization` header with the configured `AUTH_TOKE
 
 ### Request logging
 
-`GET /ping/:argument` and `POST /pong` are logged to the storage backend: method, endpoint, status, error, and the full request and response bodies. Bodies over **1 MiB** on these routes are rejected with **413** and not logged.
+`GET /ping/:argument` and `POST /pong` are logged to the storage backend: method, endpoint, status, error, and the full request and response bodies. Bodies over **1 MiB** on these routes are rejected with **413** and not logged. In `GET /logs`, a body that is valid JSON appears as JSON; any other body (plain text or truncated data) appears as a JSON string, and an empty body as `null`. For requests that end in an error, the response body is written after logging, so the entry has `"response": null` with the status and error message in their own fields.
 
 `/ping` is public, so anyone who can reach the service can add rows to the log table. Put the service behind a firewall or proxy, or turn `UseLogger` off for public routes in `router/routes.go`, if that matters for your deployment.
 
