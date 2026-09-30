@@ -30,7 +30,7 @@ func TestGetLogsHandler(t *testing.T) {
 
 	// Insert some test data
 	now := time.Now().UTC()
-	err = s.LogRequest(context.Background(), types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: now, Response: "{}", Request: "{}"})
+	err = s.LogRequests(context.Background(), []types.UsageLog{types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: now, Response: "{}", Request: "{}"}})
 	if err != nil {
 		t.Fatalf("Failed to insert log: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGetLogsHandler_ToIsInclusiveUTCDay(t *testing.T) {
 		"/late-on-day": day.Add(23*time.Hour + 59*time.Minute),
 		"/next-day":    day.AddDate(0, 0, 1),
 	} {
-		if err := s.LogRequest(context.Background(), types.UsageLog{Endpoint: endpoint, CreatedAt: at}); err != nil {
+		if err := s.LogRequests(context.Background(), []types.UsageLog{types.UsageLog{Endpoint: endpoint, CreatedAt: at}}); err != nil {
 			t.Fatalf("Failed to insert log: %v", err)
 		}
 	}

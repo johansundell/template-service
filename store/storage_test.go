@@ -19,13 +19,13 @@ func newTestSQLite(t *testing.T) *SQLStore {
 	return s
 }
 
-func TestLogRequest(t *testing.T) {
+func TestLogRequests(t *testing.T) {
 	s := newTestSQLite(t)
 	ctx := context.Background()
 
-	err := s.LogRequest(ctx, types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: time.Now(), Response: "{}", Request: "{}"})
+	err := s.LogRequests(ctx, []types.UsageLog{types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: time.Now(), Response: "{}", Request: "{}"}})
 	if err != nil {
-		t.Errorf("LogRequest failed: %v", err)
+		t.Errorf("LogRequests failed: %v", err)
 	}
 
 	var count int
@@ -37,13 +37,13 @@ func TestLogRequest(t *testing.T) {
 	}
 }
 
-func TestLogRequest_StoresFixedWidthUTC(t *testing.T) {
+func TestLogRequests_StoresFixedWidthUTC(t *testing.T) {
 	s := newTestSQLite(t)
 
 	cest := time.FixedZone("CEST", 2*60*60)
 	created := time.Date(2026, 9, 30, 23, 30, 0, 0, cest)
-	if err := s.LogRequest(context.Background(), types.UsageLog{Endpoint: "/utc", CreatedAt: created}); err != nil {
-		t.Fatalf("LogRequest failed: %v", err)
+	if err := s.LogRequests(context.Background(), []types.UsageLog{types.UsageLog{Endpoint: "/utc", CreatedAt: created}}); err != nil {
+		t.Fatalf("LogRequests failed: %v", err)
 	}
 
 	var raw string
@@ -60,8 +60,8 @@ func TestGetLogs(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now()
-	if err := s.LogRequest(ctx, types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: now, Response: "{}", Request: "{}"}); err != nil {
-		t.Fatalf("LogRequest failed: %v", err)
+	if err := s.LogRequests(ctx, []types.UsageLog{types.UsageLog{Status: 200, Method: "GET", Endpoint: "/test", CreatedAt: now, Response: "{}", Request: "{}"}}); err != nil {
+		t.Fatalf("LogRequests failed: %v", err)
 	}
 
 	logs, err := s.GetLogs(ctx, now.Add(-time.Hour), now.Add(time.Hour))
@@ -100,8 +100,8 @@ func TestGetLogs_UTCDayBoundaries(t *testing.T) {
 		{"at-end", dayEnd},
 	}
 	for _, e := range entries {
-		if err := s.LogRequest(ctx, types.UsageLog{Endpoint: e.endpoint, CreatedAt: e.at}); err != nil {
-			t.Fatalf("LogRequest(%s) failed: %v", e.endpoint, err)
+		if err := s.LogRequests(ctx, []types.UsageLog{types.UsageLog{Endpoint: e.endpoint, CreatedAt: e.at}}); err != nil {
+			t.Fatalf("LogRequests(%s) failed: %v", e.endpoint, err)
 		}
 	}
 
@@ -155,5 +155,32 @@ func TestNewSQLite_Pragmas(t *testing.T) {
 	}
 	if busyTimeout != 5000 {
 		t.Errorf("Expected busy_timeout 5000, got %d", busyTimeout)
+	}
+}
+
+func TestLogRequests_BatchIsAllOrNothing(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	if _, err := s.db.Exec(`CREATE TRIGGER reject_bad BEFORE INSERT ON request_logs
+		WHEN NEW.endpoint = '/bad' BEGIN SELECT RAISE(ABORT, 'rejected'); END`); err != nil {
+		t.Fatalf("Failed to create trigger: %v", err)
+	}
+
+	batch := []types.UsageLog{{Endpoint: "/ok-1", CreatedAt: time.Now()}, {Endpoint: "/bad", CreatedAt: time.Now()}, {Endpoint: "/ok-2", CreatedAt: time.Now()}}
+	if err := s.LogRequests(ctx, batch); err == nil {
+		t.Fatal("Expected the batch to fail")
+	}
+
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&count); err != nil {
+		t.Fatalf("Failed to count logs: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("Expected no rows from a failed batch, got %d", count)
+	}
+
+	if err := s.LogRequests(ctx, nil); err != nil {
+		t.Errorf("Expected an empty batch to be a no-op, got %v", err)
 	}
 }

@@ -3,7 +3,6 @@ package router_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,7 +39,7 @@ func TestAuthCheck(t *testing.T) {
 
 	r, err := router.NewRouter(router.Config{
 		Handler:  h,
-		Store:    s,
+		LogSink:  &recordingSink{},
 		Settings: settings,
 		Assets:   fstest.MapFS{},
 		Version:  "dev",
@@ -117,7 +116,7 @@ func TestStartupAuthValidation(t *testing.T) {
 
 	_, err := router.NewRouter(router.Config{
 		Handler:  h,
-		Store:    mockStore,
+		LogSink:  &recordingSink{},
 		Settings: settings,
 	})
 	if err == nil {
@@ -239,7 +238,7 @@ func TestNewRouter_RequiresHandler(t *testing.T) {
 	}
 }
 
-func TestStartupLoggerStoreValidation(t *testing.T) {
+func TestStartupLogSinkValidation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	settings := types.AppSettings{
@@ -250,13 +249,13 @@ func TestStartupLoggerStoreValidation(t *testing.T) {
 
 	_, err := router.NewRouter(router.Config{
 		Handler:  h,
-		Store:    nil,
+		LogSink:  nil,
 		Settings: settings,
 	})
 	if err == nil {
-		t.Fatalf("Expected NewRouter to fail when logged routes exist without Store, got nil")
+		t.Fatalf("Expected NewRouter to fail when logged routes exist without a log sink, got nil")
 	}
-	expected := `store must be configured for logged route "Ping"`
+	expected := `log sink must be configured for logged route "Ping"`
 	if err.Error() != expected {
 		t.Errorf("Expected error %q, got %q", expected, err.Error())
 	}
@@ -270,7 +269,7 @@ func TestNewRouter_EmbeddedModeNilAssetsReturnsError(t *testing.T) {
 
 	_, err := router.NewRouter(router.Config{
 		Handler:  h,
-		Store:    mockStore,
+		LogSink:  &recordingSink{},
 		Assets:   nil,
 		Settings: types.AppSettings{AuthToken: "secret-token", UseFileSystem: false},
 		Version:  "v1.0.0",
@@ -292,7 +291,7 @@ func TestNewRouter_FileSystemModeNilAssetsSucceeds(t *testing.T) {
 
 	r, err := router.NewRouter(router.Config{
 		Handler:  h,
-		Store:    mockStore,
+		LogSink:  &recordingSink{},
 		Assets:   nil,
 		Settings: types.AppSettings{AuthToken: "secret-token", UseFileSystem: true},
 		Version:  "v1.0.0",
@@ -350,9 +349,10 @@ func TestNewRouter_InjectedLogger(t *testing.T) {
 	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
 
 	tl := &testLogger{}
+	sink := &recordingSink{}
 	r, err := router.NewRouter(router.Config{
 		Handler:  h,
-		Store:    s,
+		LogSink:  sink,
 		Settings: settings,
 		Assets:   fstest.MapFS{},
 		Version:  "dev",
@@ -362,6 +362,7 @@ func TestNewRouter_InjectedLogger(t *testing.T) {
 		t.Fatalf("NewRouter failed: %v", err)
 	}
 
+	// An authorized logged request is handed to the sink.
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/pong", bytes.NewBufferString(`{"test":"data"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -371,23 +372,24 @@ func TestNewRouter_InjectedLogger(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
-
-	if len(tl.messages) == 0 {
-		t.Errorf("Expected injected logger to receive log messages, got none")
+	if len(sink.entries) != 1 || sink.entries[0].Method != "POST" || sink.entries[0].Status != http.StatusOK || !strings.HasSuffix(sink.entries[0].Endpoint, "/pong") {
+		t.Fatalf("Expected one POST /pong 200 entry in the sink, got %+v", sink.entries)
 	}
+
+	// A rejected request is reported through the injected logger.
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/pong", bytes.NewBufferString(`{}`))
+	r.ServeHTTP(w, req)
 
 	found := false
 	for _, entry := range tl.entries {
-		if strings.Contains(entry.message, "request logged: POST /pong 200") {
+		if entry.level == "WARN" && strings.Contains(entry.message, "unauthorized request: POST /pong") {
 			found = true
-			if entry.level != "INFO" {
-				t.Errorf("Expected INFO level for successful request log, got %q", entry.level)
-			}
 			break
 		}
 	}
 	if !found {
-		t.Errorf("Expected log containing 'request logged: POST /pong 200', got %v", tl.messages)
+		t.Errorf("Expected the injected logger to receive the 401 warning, got %v", tl.messages)
 	}
 }
 
@@ -487,69 +489,22 @@ func (nopStore) Ping(context.Context) error { return nil }
 func (nopStore) GetLogs(context.Context, time.Time, time.Time) ([]types.UsageLog, error) {
 	return nil, nil
 }
-func (nopStore) LogRequest(context.Context, types.UsageLog) error { return nil }
-func (nopStore) Close() error                                     { return nil }
+func (nopStore) LogRequests(context.Context, []types.UsageLog) error { return nil }
+func (nopStore) Close() error                                        { return nil }
 
-type failingStore struct {
-	store.Store
+// recordingSink collects the entries the logger middleware hands off.
+type recordingSink struct {
+	entries []types.UsageLog
 }
 
-func (failingStore) LogRequest(ctx context.Context, entry types.UsageLog) error {
-	return errors.New("simulated database failure")
-}
-
-func TestLoggerMiddleware_PersistenceFailureLogsError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	tl := &testLogger{}
-	mw := router.LoggerMiddleware(failingStore{}, tl)
-	handler := mw(func(c *gin.Context) error {
-		c.Status(http.StatusOK)
-		return nil
-	})
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest("GET", "/test-fail", nil)
-
-	wrapped := router.WrapHandler(handler, "1.0.0")
-	wrapped(c)
-
-	if len(tl.entries) == 0 {
-		t.Fatal("Expected log entries, got none")
-	}
-
-	var errEntry *testLogEntry
-	for i := range tl.entries {
-		if tl.entries[i].level == "ERROR" {
-			errEntry = &tl.entries[i]
-			break
-		}
-	}
-	if errEntry == nil {
-		t.Fatalf("Expected ERROR log entry, got %v", tl.entries)
-	}
-	if !strings.Contains(errEntry.message, "failed to persist request log: simulated database failure") {
-		t.Errorf("Expected persistence error message, got %q", errEntry.message)
-	}
-}
-
-type recordingStore struct {
-	store.Store
-	calls    int
-	response string
-}
-
-func (r *recordingStore) LogRequest(ctx context.Context, entry types.UsageLog) error {
-	r.calls++
-	r.response = string(entry.Response)
-	return nil
+func (r *recordingSink) Enqueue(e types.UsageLog) {
+	r.entries = append(r.entries, e)
 }
 
 func TestLoggerMiddleware_RejectsOversizedBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	rs := &recordingStore{}
+	rs := &recordingSink{}
 	tl := &testLogger{}
 	called := false
 	handler := router.LoggerMiddleware(rs, tl)(func(c *gin.Context) error {
@@ -569,8 +524,8 @@ func TestLoggerMiddleware_RejectsOversizedBody(t *testing.T) {
 	if called {
 		t.Error("Expected handler not to be called for an oversized body")
 	}
-	if rs.calls != 0 {
-		t.Errorf("Expected oversized request not to be persisted, got %d LogRequest calls", rs.calls)
+	if len(rs.entries) != 0 {
+		t.Errorf("Expected oversized request not to be logged, got %d entries", len(rs.entries))
 	}
 	if len(tl.entries) != 1 || tl.entries[0].level != "WARN" {
 		t.Errorf("Expected one WARN log entry, got %v", tl.entries)
@@ -580,7 +535,7 @@ func TestLoggerMiddleware_RejectsOversizedBody(t *testing.T) {
 func TestLoggerMiddleware_AcceptsBodyAtLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	rs := &recordingStore{}
+	rs := &recordingSink{}
 	var got int
 	handler := router.LoggerMiddleware(rs, &testLogger{})(func(c *gin.Context) error {
 		b, err := io.ReadAll(c.Request.Body)
@@ -609,7 +564,7 @@ func TestLoggerMiddleware_AcceptsBodyAtLimit(t *testing.T) {
 func TestLoggerMiddleware_CapturesWriteString(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	rs := &recordingStore{}
+	rs := &recordingSink{}
 	handler := router.LoggerMiddleware(rs, &testLogger{})(func(c *gin.Context) error {
 		c.Status(http.StatusOK)
 		_, err := c.Writer.WriteString(`{"via":"WriteString"}`)
@@ -622,8 +577,8 @@ func TestLoggerMiddleware_CapturesWriteString(t *testing.T) {
 
 	router.WrapHandler(handler, "1.0.0")(c)
 
-	if rs.response != `{"via":"WriteString"}` {
-		t.Errorf("Expected logged response %q, got %q", `{"via":"WriteString"}`, rs.response)
+	if len(rs.entries) != 1 || string(rs.entries[0].Response) != `{"via":"WriteString"}` {
+		t.Errorf("Expected logged response %q, got %+v", `{"via":"WriteString"}`, rs.entries)
 	}
 	if w.Body.String() != `{"via":"WriteString"}` {
 		t.Errorf("Expected client response %q, got %q", `{"via":"WriteString"}`, w.Body.String())

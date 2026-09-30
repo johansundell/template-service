@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/johansundell/template-service/handlers"
+	"github.com/johansundell/template-service/logqueue"
 	"github.com/johansundell/template-service/router"
 	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/types"
@@ -100,11 +101,21 @@ func (p *program) run(startup chan<- error) error {
 	}
 	ensureAuthToken()
 
+	// Request logs are written in the background. The deferred Close runs after
+	// the HTTP server has shut down, drains the queue for up to 5 more seconds
+	// and runs before the store is closed.
+	logQueue := logqueue.New(st, serviceLoggerAdapter{logger: logger})
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		logQueue.Close(ctx)
+	}()
+
 	handler := handlers.NewHandler(st, settings.UseFileSystem, tpls, nameOfService, Version)
 
 	routerEngine, err := router.NewRouter(router.Config{
 		Handler:  handler,
-		Store:    st,
+		LogSink:  logQueue,
 		Settings: settings,
 		Assets:   embededFiles,
 		Version:  Version,
