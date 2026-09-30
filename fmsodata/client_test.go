@@ -309,3 +309,62 @@ func TestCreateRecord_ErrorStatus(t *testing.T) {
 	_, err := newTestClient(server.URL).CreateRecord(context.Background(), "Logs", map[string]interface{}{"Nope": 1})
 	assert.ErrorContains(t, err, "status 400")
 }
+
+func TestCreateRecords_BatchResponses(t *testing.T) {
+	respond := func(body string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/fmi/odata/v4/testdb/$batch", r.URL.Path)
+			assert.Contains(t, r.Header.Get("Content-Type"), "multipart/mixed; boundary=batch_")
+			w.Header().Set("Content-Type", "multipart/mixed; boundary=b")
+			w.Write([]byte(body))
+		}))
+	}
+	records := []map[string]interface{}{{"Status": 200}, {"Status": 201}}
+
+	t.Run("responses per create without closing blank line", func(t *testing.T) {
+		srv := respond("--b\r\nContent-Type: multipart/mixed; boundary=c\r\n\r\n" +
+			"--c\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 204 No Content\r\n" +
+			"--c\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\n{}\r\n" +
+			"--c--\r\n--b--\r\n")
+		defer srv.Close()
+		assert.NoError(t, newTestClient(srv.URL).CreateRecords(context.Background(), "Logs", records))
+	})
+
+	t.Run("single error response for the change set", func(t *testing.T) {
+		srv := respond("--b\r\nContent-Type: application/http\r\n\r\n" +
+			"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"error\":\"nope\"}\n\r\n" +
+			"--b--\r\n")
+		defer srv.Close()
+		err := newTestClient(srv.URL).CreateRecords(context.Background(), "Logs", records)
+		var se *StatusError
+		assert.ErrorAs(t, err, &se)
+		assert.Equal(t, 400, se.StatusCode)
+	})
+
+	t.Run("failed create inside the change set", func(t *testing.T) {
+		srv := respond("--b\r\nContent-Type: multipart/mixed; boundary=c\r\n\r\n" +
+			"--c\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 204 No Content\r\n\r\n\r\n" +
+			"--c\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 500 Internal Server Error\r\n\r\n\r\n" +
+			"--c--\r\n--b--\r\n")
+		defer srv.Close()
+		err := newTestClient(srv.URL).CreateRecords(context.Background(), "Logs", records)
+		var se *StatusError
+		assert.ErrorAs(t, err, &se)
+		assert.Equal(t, 500, se.StatusCode)
+	})
+
+	t.Run("whole batch rejected", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		}))
+		defer srv.Close()
+		err := newTestClient(srv.URL).CreateRecords(context.Background(), "Logs", records)
+		var se *StatusError
+		assert.ErrorAs(t, err, &se)
+		assert.Equal(t, 401, se.StatusCode)
+	})
+
+	t.Run("empty batch sends nothing", func(t *testing.T) {
+		assert.NoError(t, newTestClient("http://127.0.0.1:1").CreateRecords(context.Background(), "Logs", nil))
+	})
+}

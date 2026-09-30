@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/types"
@@ -74,5 +76,35 @@ func TestStart_UsesConfiguredSqlitePath(t *testing.T) {
 
 	if capturedPath != "/custom/data/my.db" {
 		t.Errorf("expected sqlite path /custom/data/my.db, got %q", capturedPath)
+	}
+}
+
+func TestOpenStore_FileMakerMapsSettings(t *testing.T) {
+	originalSettings := settings
+	settings = types.AppSettings{Storage: types.StorageFileMaker, FileMaker: types.FileMakerSettings{
+		Host: "https://fms.example.com", Database: "Logging", Username: "u", Password: "p",
+		Timeout: 3 * time.Second, LogTable: "ServiceLogs", CAFile: "/etc/ca.pem",
+	}}
+	defer func() { settings = originalSettings }()
+
+	var got store.FileMakerConfig
+	var deadline time.Time
+	orig := newFileMakerStore
+	newFileMakerStore = func(ctx context.Context, cfg store.FileMakerConfig) (store.Store, error) {
+		got = cfg
+		deadline, _ = ctx.Deadline()
+		return nil, errors.New("stop here")
+	}
+	defer func() { newFileMakerStore = orig }()
+
+	if _, err := openStore(); err == nil {
+		t.Fatal("expected the constructor's error to be returned")
+	}
+	want := store.FileMakerConfig{Host: "https://fms.example.com", Database: "Logging", Username: "u", Password: "p", Timeout: 3 * time.Second, Table: "ServiceLogs", CAFile: "/etc/ca.pem"}
+	if got != want {
+		t.Errorf("expected %+v, got %+v", want, got)
+	}
+	if deadline.IsZero() || time.Until(deadline) > 3*time.Second {
+		t.Errorf("expected the startup check to run within FMS_TIMEOUT, got deadline %v", deadline)
 	}
 }

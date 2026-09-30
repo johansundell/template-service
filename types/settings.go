@@ -3,13 +3,27 @@ package types
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Storage backends selectable with STORAGE.
 const (
-	StorageSQLite = "sqlite"
-	StorageMySQL  = "mysql"
+	StorageSQLite    = "sqlite"
+	StorageMySQL     = "mysql"
+	StorageFileMaker = "filemaker"
 )
+
+// FileMakerSettings configures STORAGE=filemaker (FMS_* variables).
+type FileMakerSettings struct {
+	Host               string        `json:"host"`
+	Database           string        `json:"database"`
+	Username           string        `json:"username"`
+	Password           string        `json:"password"`
+	Timeout            time.Duration `json:"timeout"`
+	LogTable           string        `json:"logTable"`
+	CAFile             string        `json:"caFile"`
+	InsecureSkipVerify bool          `json:"insecureSkipVerify"`
+}
 
 type AppSettings struct {
 	Debug         bool   `json:"debug"`
@@ -26,6 +40,7 @@ type AppSettings struct {
 		Port     string `json:"port"`
 		Database string `json:"database"`
 	} `json:"mysql"`
+	FileMaker FileMakerSettings `json:"filemaker"`
 }
 
 // Validate verifies required settings and returns an error when configuration is invalid.
@@ -45,8 +60,23 @@ func (s AppSettings) Validate() error {
 		if strings.HasPrefix(s.MySqlSettings.Port, ":") {
 			return fmt.Errorf("MYSQL_PORT must not contain leading ':'")
 		}
+	case StorageFileMaker:
+		fm := s.FileMaker
+		if fm.Host == "" || fm.Database == "" || fm.Username == "" || fm.Password == "" {
+			return fmt.Errorf("FMS_HOST, FMS_DATABASE, FMS_USERNAME and FMS_PASSWORD must be set when STORAGE=filemaker")
+		}
+		// Basic auth is sent with every request, so plain HTTP would leak the password.
+		if !strings.HasPrefix(fm.Host, "https://") {
+			return fmt.Errorf("FMS_HOST must start with https://, got %q", fm.Host)
+		}
+		if fm.Timeout <= 0 {
+			return fmt.Errorf("FMS_TIMEOUT must be a positive duration such as 10s")
+		}
+		if fm.LogTable == "" {
+			return fmt.Errorf("FMS_LOG_TABLE must not be empty")
+		}
 	default:
-		return fmt.Errorf("STORAGE must be %q or %q, got %q", StorageSQLite, StorageMySQL, s.Storage)
+		return fmt.Errorf("STORAGE must be %q, %q or %q, got %q", StorageSQLite, StorageMySQL, StorageFileMaker, s.Storage)
 	}
 	return nil
 }
