@@ -70,6 +70,9 @@ func main() {
 
 	err = s.Run()
 	if err != nil {
+		// A failed start must not look like a clean stop to service
+		// managers and restart policies.
 		logger.Error(err)
+		os.Exit(1)
 	}
 }
