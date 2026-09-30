@@ -7,6 +7,9 @@ type ODataResponse struct {
 	Context string                   `json:"@odata.context,omitempty"`
 	Count   int                      `json:"@odata.count,omitempty"`
 	Value   []map[string]interface{} `json:"value,omitempty"`
+	// NextLink points to the next page; FileMaker returns at most 10,000
+	// records per response.
+	NextLink string `json:"@odata.nextLink,omitempty"`
 }
 
 // ODataError represents an OData error response
