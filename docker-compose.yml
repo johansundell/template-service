@@ -8,7 +8,7 @@ services:
     environment:
       - PORT=:8080
       - USE_FILE_SYSTEM=false
-      - USE_SQLITE=true
+      - STORAGE=sqlite
       - SQLITE_PATH=/app/data/template-service.db
       - DEBUG=true
     restart: unless-stopped

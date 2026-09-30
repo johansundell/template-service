@@ -20,8 +20,8 @@ These endpoints require an `Authorization` header with the configured `AUTH_TOKE
   - Echo endpoint. Accepts a JSON body and returns `{"message": <input>}`.
 
 - **GET /logs/:from/:to**
-  - Retrieve usage logs within a date range.
-  - `:from` and `:to` should be valid date strings.
+  - Retrieve usage logs within a date range, oldest first.
+  - `:from` and `:to` are dates in `YYYY-MM-DD` format and mean whole **UTC** days: from `:from` 00:00Z up to, not including, the day after `:to`. Timestamps are stored in UTC.
 
 ## Service Management
 
@@ -103,11 +103,10 @@ The application is configured via environment variables. You can set these in a 
 | `PORT` | string | `:8080` | The port the server listens on. |
 | `USE_FILE_SYSTEM` | bool | `false` | If true, serves assets from the `assets` folder. If false, uses embedded assets. |
 | `TIMEOUT` | int | `15` | Request timeout in seconds. |
-| `USE_MYSQL` | bool | `false` | Enable MySQL database support. |
-| `USE_SQLITE` | bool | `false` | Enable SQLite database support. |
-| `SQLITE_PATH` | string | `<binary dir>/<nameOfService>.db` | Path to SQLite database file. |
+| `STORAGE` | string | `sqlite` | Storage backend for request logs: `sqlite` or `mysql`. |
+| `SQLITE_PATH` | string | `<binary dir>/<nameOfService>.db` | Path to SQLite database file (`STORAGE=sqlite`). |
 | `AUTH_TOKEN` | string | - | Token required for protected endpoints. |
-| `MYSQL_USERNAME` | string | - | MySQL username. |
+| `MYSQL_USERNAME` | string | - | MySQL username (required when `STORAGE=mysql`, as are `MYSQL_HOST` and `MYSQL_DATABASE`). |
 | `MYSQL_PASSWORD` | string | - | MySQL password. |
 | `MYSQL_HOST` | string | - | MySQL host address. |
 | `MYSQL_PORT` | string | `3306` | MySQL port. |

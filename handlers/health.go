@@ -9,7 +9,7 @@ import (
 
 func (h *Handler) HealthCheck(c *gin.Context) error {
 	dbStatus := "OK"
-	if err := h.store.Ping(); err != nil {
+	if err := h.store.Ping(c.Request.Context()); err != nil {
 		dbStatus = err.Error()
 	}
 

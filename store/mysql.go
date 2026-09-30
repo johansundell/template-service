@@ -7,7 +7,12 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-func NewMySQLStorage(cfg mysql.Config) (*sql.DB, error) {
+// NewMySQL connects to MySQL and returns a store that owns the connection.
+// Timestamps are stored in UTC.
+func NewMySQL(cfg mysql.Config) (*SQLStore, error) {
+	cfg.ParseTime = true
+	cfg.Loc = time.UTC
+
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		return nil, err
@@ -33,5 +38,8 @@ func NewMySQLStorage(cfg mysql.Config) (*sql.DB, error) {
 		return nil, err
 	}
 
-	return db, nil
+	return &SQLStore{
+		db:      db,
+		timeArg: func(t time.Time) any { return t.UTC() },
+	}, nil
 }

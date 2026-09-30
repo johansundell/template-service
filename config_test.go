@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/johansundell/template-service/types"
 	"github.com/johansundell/template-service/utils"
 )
 
@@ -147,4 +148,36 @@ func TestLoadSettings_SqlitePath(t *testing.T) {
 			t.Errorf("expected default settings.SqlitePath %q, got %q", expected, got)
 		}
 	})
+}
+
+func TestLoadSettings_Storage(t *testing.T) {
+	loadWith := func(t *testing.T, content string) string {
+		t.Setenv("STORAGE", "")
+		tmpEnv, err := os.CreateTemp("", ".env.*")
+		if err != nil {
+			t.Fatalf("Failed to create temp env file: %v", err)
+		}
+		defer os.Remove(tmpEnv.Name())
+		if _, err := tmpEnv.WriteString(content); err != nil {
+			t.Fatalf("Failed to write to temp env file: %v", err)
+		}
+		tmpEnv.Close()
+
+		loadSettings(tmpEnv.Name())
+		return settings.Storage
+	}
+	defer loadSettings()
+
+	if got := loadWith(t, "PORT=:9999\n"); got != types.StorageSQLite {
+		t.Errorf("expected default storage %q, got %q", types.StorageSQLite, got)
+	}
+	if got := loadWith(t, "STORAGE= MySQL \n"); got != types.StorageMySQL {
+		t.Errorf("expected STORAGE to be trimmed and lower-cased to %q, got %q", types.StorageMySQL, got)
+	}
+	if got := loadWith(t, "STORAGE=postgres\n"); got != "postgres" {
+		t.Errorf("expected unknown storage to be kept for validation, got %q", got)
+	}
+	if err := settings.Validate(); err == nil {
+		t.Error("expected Validate to reject an unknown STORAGE")
+	}
 }

@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/handlers"
@@ -28,13 +30,12 @@ func TestAuthCheck(t *testing.T) {
 
 	tmpFile := filepath.Join(t.TempDir(), "test_router_auth.db")
 
-	db, err := store.NewSqliteDatabase(tmpFile)
+	s, err := store.NewSQLite(tmpFile)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer s.Close()
 
-	s := store.NewStorage(db)
 	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
 
 	r, err := router.NewRouter(router.Config{
@@ -111,7 +112,7 @@ func TestStartupAuthValidation(t *testing.T) {
 		AuthToken: "",
 	}
 
-	mockStore := store.NewStorage(nil)
+	mockStore := nopStore{}
 	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	_, err := router.NewRouter(router.Config{
@@ -175,7 +176,7 @@ func TestWrapHandler_VersionHeader(t *testing.T) {
 }
 
 func TestGetRoutes(t *testing.T) {
-	mockStore := store.NewStorage(nil)
+	mockStore := nopStore{}
 	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	routes := router.GetRoutes(h)
@@ -264,7 +265,7 @@ func TestStartupLoggerStoreValidation(t *testing.T) {
 func TestNewRouter_EmbeddedModeNilAssetsReturnsError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockStore := store.NewStorage(nil)
+	mockStore := nopStore{}
 	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	_, err := router.NewRouter(router.Config{
@@ -286,7 +287,7 @@ func TestNewRouter_EmbeddedModeNilAssetsReturnsError(t *testing.T) {
 func TestNewRouter_FileSystemModeNilAssetsSucceeds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockStore := store.NewStorage(nil)
+	mockStore := nopStore{}
 	h := handlers.NewHandler(mockStore, false, fstest.MapFS{}, "test", "dev")
 
 	r, err := router.NewRouter(router.Config{
@@ -340,13 +341,12 @@ func TestNewRouter_InjectedLogger(t *testing.T) {
 	}
 
 	tmpFile := filepath.Join(t.TempDir(), "test_router_logger.db")
-	db, err := store.NewSqliteDatabase(tmpFile)
+	s, err := store.NewSQLite(tmpFile)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer s.Close()
 
-	s := store.NewStorage(db)
 	h := handlers.NewHandler(s, false, fstest.MapFS{}, "test", "dev")
 
 	tl := &testLogger{}
@@ -480,11 +480,21 @@ func TestAuthMiddleware_Logs401OnInvalidToken(t *testing.T) {
 	}
 }
 
+// nopStore satisfies store.Store for tests that never touch storage.
+type nopStore struct{}
+
+func (nopStore) Ping(context.Context) error { return nil }
+func (nopStore) GetLogs(context.Context, time.Time, time.Time) ([]types.UsageLog, error) {
+	return nil, nil
+}
+func (nopStore) LogRequest(context.Context, types.UsageLog) error { return nil }
+func (nopStore) Close() error                                     { return nil }
+
 type failingStore struct {
 	store.Store
 }
 
-func (failingStore) LogRequest(status int, method, errStr, endpoint, createdAt, response, request string) error {
+func (failingStore) LogRequest(ctx context.Context, entry types.UsageLog) error {
 	return errors.New("simulated database failure")
 }
 
@@ -530,9 +540,9 @@ type recordingStore struct {
 	response string
 }
 
-func (r *recordingStore) LogRequest(status int, method, errStr, endpoint, createdAt, response, request string) error {
+func (r *recordingStore) LogRequest(ctx context.Context, entry types.UsageLog) error {
 	r.calls++
-	r.response = response
+	r.response = string(entry.Response)
 	return nil
 }
 

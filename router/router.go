@@ -252,7 +252,7 @@ func LoggerMiddleware(s store.Store, l Logger) func(HandlerFuncWithError) Handle
 				Method:    c.Request.Method,
 				Error:     errMsg,
 				Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
-				CreatedAt: time.Now(),
+				CreatedAt: time.Now().UTC(),
 				Response:  types.RawJSON(blw.body.String()),
 				Request:   types.RawJSON(requestBody),
 			}
@@ -262,7 +262,7 @@ func LoggerMiddleware(s store.Store, l Logger) func(HandlerFuncWithError) Handle
 			}
 
 			// Persist request log; if persistence fails, record the error to logger
-			if persistErr := s.LogRequest(usageLog.Status, usageLog.Method, usageLog.Error, usageLog.Endpoint, usageLog.CreatedAt.Format(time.RFC3339), string(usageLog.Response), string(usageLog.Request)); persistErr != nil {
+			if persistErr := s.LogRequest(c.Request.Context(), usageLog); persistErr != nil {
 				l.Errorf("failed to persist request log: %v", persistErr)
 			} else {
 				l.Infof("request logged: %s %s %d", usageLog.Method, usageLog.Endpoint, usageLog.Status)

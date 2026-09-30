@@ -7,7 +7,25 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-func NewSqliteDatabase(file string) (*sql.DB, error) {
+// sqliteTimeLayout is a fixed-width UTC layout, so created_at values compare
+// and sort correctly as strings. The driver's default (RFC3339Nano) varies in
+// length and does not.
+const sqliteTimeLayout = "2006-01-02T15:04:05.000000Z07:00"
+
+// NewSQLite opens (or creates) the SQLite database at file and returns a store
+// that owns the connection.
+func NewSQLite(file string) (*SQLStore, error) {
+	db, err := openSQLite(file)
+	if err != nil {
+		return nil, err
+	}
+	return &SQLStore{
+		db:      db,
+		timeArg: func(t time.Time) any { return t.UTC().Format(sqliteTimeLayout) },
+	}, nil
+}
+
+func openSQLite(file string) (*sql.DB, error) {
 	// SQLite-specific pragmas for better concurrency and durability, set in the
 	// DSN so the driver applies them to every connection it opens.
 	// WAL mode and a busy timeout reduce SQLITE_BUSY errors under contention.

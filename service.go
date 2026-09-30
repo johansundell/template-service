@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 	"github.com/johansundell/template-service/handlers"
 	"github.com/johansundell/template-service/router"
 	"github.com/johansundell/template-service/store"
-	"github.com/johansundell/template-service/utils"
+	"github.com/johansundell/template-service/types"
 	"github.com/kardianos/service"
 )
 
@@ -35,9 +34,21 @@ func newProgram() *program {
 	return &program{failed: make(chan error, 1)}
 }
 
-// injectable constructors so tests can mock DB initialization and listening
-var newMySQLStorage = store.NewMySQLStorage
-var newSqliteDatabase = store.NewSqliteDatabase
+// injectable constructors so tests can mock storage initialization and listening
+var newSQLiteStore = func(path string) (store.Store, error) {
+	s, err := store.NewSQLite(path)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+var newMySQLStore = func(cfg mysql.Config) (store.Store, error) {
+	s, err := store.NewMySQL(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 var netListen = net.Listen
 
 func (p *program) Start(s service.Service) error {
@@ -71,53 +82,29 @@ func (p *program) startWorker() error {
 func (p *program) run(startup chan<- error) error {
 	logInfo("I'm running %v, with version %v.", service.Platform(), Version)
 
-	var mydb *sql.DB
-	var err error
+	st, err := openStore()
+	if err != nil {
+		logError("failed to initialize %s storage: %v", settings.Storage, err)
+		startup <- err
+		return err
+	}
+	defer st.Close()
 
-	if settings.UseMySQL {
-		cfg := mysql.Config{
-			User:                 settings.MySqlSettings.Username,
-			Passwd:               settings.MySqlSettings.Password,
-			Net:                  "tcp",
-			Addr:                 settings.MySqlSettings.Host + ":" + settings.MySqlSettings.Port,
-			DBName:               settings.MySqlSettings.Database,
-			AllowNativePasswords: true,
-			ParseTime:            true,
-		}
-		mydb, err = newMySQLStorage(cfg)
-		if err != nil {
-			logError("failed to initialize MySQL storage: %v", err)
-			startup <- err
-			return err
-		}
-	} else if settings.UseSqlite {
-		sqlitePath := settings.SqlitePath
-		if sqlitePath == "" {
-			sqlitePath = filepath.Join(utils.GetBinaryBasePath(), nameOfService+".db")
-		}
-		mydb, err = newSqliteDatabase(sqlitePath)
-		if err != nil {
-			logError("failed to initialize sqlite storage: %v", err)
-			startup <- err
-			return err
-		}
-	}
-	if mydb != nil {
-		defer mydb.Close()
-	}
-	if err := mydb.Ping(); err != nil {
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 5*time.Second)
+	err = st.Ping(pingCtx)
+	cancelPing()
+	if err != nil {
 		logError("database ping failed: %v", err)
 		startup <- err
 		return err
 	}
 	ensureAuthToken()
 
-	store := store.NewStorage(mydb)
-	handler := handlers.NewHandler(store, settings.UseFileSystem, tpls, nameOfService, Version)
+	handler := handlers.NewHandler(st, settings.UseFileSystem, tpls, nameOfService, Version)
 
 	routerEngine, err := router.NewRouter(router.Config{
 		Handler:  handler,
-		Store:    store,
+		Store:    st,
 		Settings: settings,
 		Assets:   embededFiles,
 		Version:  Version,
@@ -162,6 +149,25 @@ func (p *program) run(startup chan<- error) error {
 		return err
 	}
 	return nil
+}
+
+// openStore opens the storage backend chosen with STORAGE.
+func openStore() (store.Store, error) {
+	switch settings.Storage {
+	case types.StorageSQLite:
+		return newSQLiteStore(settings.SqlitePath)
+	case types.StorageMySQL:
+		return newMySQLStore(mysql.Config{
+			User:                 settings.MySqlSettings.Username,
+			Passwd:               settings.MySqlSettings.Password,
+			Net:                  "tcp",
+			Addr:                 settings.MySqlSettings.Host + ":" + settings.MySqlSettings.Port,
+			DBName:               settings.MySqlSettings.Database,
+			AllowNativePasswords: true,
+		})
+	default:
+		return nil, fmt.Errorf("unsupported STORAGE %q", settings.Storage)
+	}
 }
 
 // Stop waits for graceful shutdown to finish: once it returns,
