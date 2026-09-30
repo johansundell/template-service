@@ -130,6 +130,11 @@ make build
 ./template-service
 ```
 
+The service resolves paths relative to **its binary's folder**: the `assets` and `tmpl` folders when `USE_FILE_SYSTEM=true`, a `.env` file (after the current directory), and the default `SQLITE_PATH`. `go run .` builds the binary in a temporary Go folder, which has two effects:
+
+- **`USE_FILE_SYSTEM=true` doesn't work with `go run .`**: the assets and templates aren't found, so `GET /` returns 500 and `/assets/...` returns 404. Use embedded assets (the default), or build first with `go build` or `make build` and run the binary from the repo, as above.
+- **The default SQLite file lands in that temporary folder** and is gone after the next build. With `go run .`, set `SQLITE_PATH`, for example `SQLITE_PATH=./template-service.db go run .` (`*.db` is gitignored).
+
 ### Running with Docker
 
 To run the service using Docker Compose:
@@ -158,10 +163,10 @@ The application is configured via environment variables. You can set these in a 
 |----------|------|---------|-------------|
 | `DEBUG` | bool | `false` | Enable debug mode. |
 | `PORT` | string | `:8080` | The port the server listens on. |
-| `USE_FILE_SYSTEM` | bool | `false` | If true, serves assets from the `assets` folder. If false, uses embedded assets. |
+| `USE_FILE_SYSTEM` | bool | `false` | If true, serves assets and templates from the `assets` and `tmpl` folders next to the binary (edit them without rebuilding). If false, uses the embedded copies. Doesn't work with `go run .` (see [Running Locally](#running-locally)). |
 | `TIMEOUT` | int | `15` | Request timeout in seconds. |
 | `STORAGE` | string | `sqlite` | Storage backend for request logs: `sqlite`, `mysql` or `filemaker`. |
-| `SQLITE_PATH` | string | `<binary dir>/<nameOfService>.db` | Path to SQLite database file (`STORAGE=sqlite`). |
+| `SQLITE_PATH` | string | `<binary dir>/<nameOfService>.db` | Path to SQLite database file (`STORAGE=sqlite`). Set it when using `go run .`, whose binary dir is temporary. |
 | `AUTH_TOKEN` | string | random per start | Token required for protected endpoints. When unset, a temporary token is generated and logged (see [Authentication token](#authentication-token)). |
 | `MYSQL_USERNAME` | string | - | MySQL username (required when `STORAGE=mysql`, as are `MYSQL_HOST` and `MYSQL_DATABASE`). |
 | `MYSQL_PASSWORD` | string | - | MySQL password. |

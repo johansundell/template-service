@@ -1,6 +1,7 @@
 DEBUG=true
 PORT=:8080
-USE_FILE_SYSTEM=true
+# true serves assets/ and tmpl/ from next to the binary; needs a built binary, not go run
+USE_FILE_SYSTEM=false
 TIMEOUT=15
 # storage backend: sqlite, mysql or filemaker
 STORAGE=sqlite
