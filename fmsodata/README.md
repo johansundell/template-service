@@ -54,6 +54,16 @@ if errors.As(err, &se) && se.StatusCode == http.StatusUnauthorized {
 }
 ```
 
+### Checking the Connection
+
+`Ping` requests the database's OData service document, which checks the host, credentials and TLS without touching a table:
+
+```go
+if err := client.Ping(context.Background()); err != nil {
+    // unreachable, bad credentials (a *StatusError with 401) or a TLS problem
+}
+```
+
 ### CRUD Operations
 
 #### Get Records

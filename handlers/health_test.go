@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -83,5 +84,38 @@ func TestHealthCheckJSON(t *testing.T) {
 	expectedJSON := `{"dbStatus":"OK","name":"test-service","title":"Health Check","version":"v1.0"}`
 	if w.Body.String() != expectedJSON {
 		t.Errorf("Expected body '%s', got '%s'", expectedJSON, w.Body.String())
+	}
+}
+
+func TestHealthCheck_StorageDownReturns503(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	s, err := store.NewSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create db: %v", err)
+	}
+	s.Close() // Ping now fails
+
+	mockFS := fstest.MapFS{
+		"tmpl/base.html":   {Data: []byte(`{{define "base"}}{{template "content" .}}{{end}}`)},
+		"tmpl/health.html": {Data: []byte(`{{define "content"}}Database: {{.dbStatus}}{{end}}`)},
+	}
+	h := NewHandler(s, false, mockFS, "test-service", "v1.0")
+
+	for _, accept := range []string{"application/json", "text/html"} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("GET", "/", nil)
+		c.Request.Header.Set("Accept", accept)
+
+		if err := h.HealthCheck(c); err != nil {
+			t.Fatalf("%s: expected no error, got %v", accept, err)
+		}
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: expected status 503, got %d", accept, w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "closed") {
+			t.Errorf("%s: expected the storage error in the body, got %q", accept, w.Body.String())
+		}
 	}
 }

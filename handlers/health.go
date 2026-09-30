@@ -7,9 +7,13 @@ import (
 	"github.com/johansundell/template-service/httperror"
 )
 
+// HealthCheck reports the service and storage state. It answers 503 when
+// the storage ping fails, so health checks see the service as unhealthy.
 func (h *Handler) HealthCheck(c *gin.Context) error {
+	status := http.StatusOK
 	dbStatus := "OK"
 	if err := h.store.Ping(c.Request.Context()); err != nil {
+		status = http.StatusServiceUnavailable
 		dbStatus = err.Error()
 	}
 
@@ -21,7 +25,7 @@ func (h *Handler) HealthCheck(c *gin.Context) error {
 	}
 
 	if c.GetHeader("Accept") == "application/json" {
-		c.JSON(http.StatusOK, data)
+		c.JSON(status, data)
 		return nil
 	}
 
@@ -32,6 +36,7 @@ func (h *Handler) HealthCheck(c *gin.Context) error {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}
 
+	c.Status(status)
 	if err := tmpl.ExecuteTemplate(c.Writer, "base", data); err != nil {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
 	}

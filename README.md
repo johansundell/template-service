@@ -1,27 +1,45 @@
 # template-service
 
-A robust Go-based service template designed for quick bootstrapping of web services. It includes built-in support for system service management, database integration (SQLite/MySQL), authentication, and Docker deployment.
+A robust Go-based service template designed for quick bootstrapping of web services. It includes built-in support for system service management, request logging to SQLite, MySQL or FileMaker, authentication, and Docker deployment.
 
 ## API Endpoints
+
+Every response carries an `X-Version` header with the build version. Errors are returned as plain text with the HTTP status text as the body (for example `Not Found`). A request that runs longer than `TIMEOUT` seconds gets **503** with the body `Timeout`.
 
 ### Public Endpoints
 
 - **GET /**
-  - Health check endpoint. Returns 200 OK if the service is running.
+  - Health check. Pings the storage backend and returns an HTML page, or JSON `{"title", "name", "version", "dbStatus"}` when the request sends `Accept: application/json`.
+  - `dbStatus` is `OK`, or the storage error. The status is **200** when storage answers and **503** when it doesn't, so Docker's `HEALTHCHECK` and load balancers see the service as unhealthy.
 
 - **GET /ping/:argument**
-  - Echo endpoint. Returns `{"result": "<argument>"}`.
+  - Echo endpoint. Returns `{"result": "<argument>"}`. `/ping/notfound` returns **404** (an example of an error response).
+  - Logged to the database (see [Request logging](#request-logging)).
+
+- **GET /assets/\***
+  - Static files (CSS, images), embedded in the binary or read from disk with `USE_FILE_SYSTEM=true`.
 
 ### Protected Endpoints
 
-These endpoints require an `Authorization` header with the configured `AUTH_TOKEN` (e.g., `Authorization: Bearer <token>` or `Authorization: <token>`).
+These endpoints require an `Authorization` header with the configured `AUTH_TOKEN` (e.g., `Authorization: Bearer <token>` or `Authorization: <token>`). A missing or wrong token gets **401**.
 
 - **POST /pong**
-  - Echo endpoint. Accepts a JSON body and returns `{"message": <input>}`.
+  - Echo endpoint. Accepts a JSON **object** and returns `{"message": <input>}`. Anything else (invalid JSON, an array, an empty body) gets **400**.
+  - Logged to the database.
 
 - **GET /logs/:from/:to**
-  - Retrieve usage logs within a date range, oldest first. Logs are written in the background, so the newest entries can take up to about a second to appear.
-  - `:from` and `:to` are dates in `YYYY-MM-DD` format and mean whole **UTC** days: from `:from` 00:00Z up to, not including, the day after `:to`. Timestamps are stored in UTC.
+  - Retrieve usage logs within a date range as a JSON array, oldest first. An empty range returns `[]`. Logs are written in the background, so the newest entries can take up to about a second to appear.
+  - `:from` and `:to` are dates in `YYYY-MM-DD` format (anything else gets **400**) and mean whole **UTC** days: from `:from` 00:00Z up to, not including, the day after `:to`. Timestamps are stored in UTC.
+
+### Request logging
+
+`GET /ping/:argument` and `POST /pong` are logged to the storage backend: method, endpoint, status, error, and the full request and response bodies. Bodies over **1 MiB** on these routes are rejected with **413** and not logged.
+
+`/ping` is public, so anyone who can reach the service can add rows to the log table. Put the service behind a firewall or proxy, or turn `UseLogger` off for public routes in `router/routes.go`, if that matters for your deployment.
+
+### Authentication token
+
+If `AUTH_TOKEN` is not set, the service generates a random token when it starts and logs it as a warning (`AUTH_TOKEN is not set; using temporary token for this run: ...`). The token changes on every restart and appears in the service log, so set `AUTH_TOKEN` for any real deployment.
 
 ## Service Management
 
@@ -68,6 +86,25 @@ git clone https://github.com/johansundell/template-service.git
 cd template-service
 ```
 
+### Creating a new service from the template
+
+Rename the Go module and the service. The service name is used for the binary, the system service, the default SQLite file, the Docker image and the compose service. Run this in the fresh clone (GNU `sed`; on macOS use `sed -i ''`):
+
+```bash
+NEW_MODULE=github.com/acme/billing-service   # Go module path of the new service
+NEW_NAME=billing-service                     # service, binary and Docker name
+NEW_ACCOUNT=acme                             # GitHub account for `make release`
+
+OLD_MODULE=github.com/johansundell/template-service
+git grep -lz "$OLD_MODULE" | xargs -0 sed -i "s#$OLD_MODULE#$NEW_MODULE#g"
+git grep -lz template-service -- ':!.agents' | xargs -0 sed -i "s#template-service#$NEW_NAME#g"
+sed -i "s#^GHACCOUNT := .*#GHACCOUNT := $NEW_ACCOUNT#" Makefile
+
+go build ./... && go test ./...
+```
+
+The first command rewrites the module path in `go.mod`, the imports and the docs; the second renames the service everywhere else (`main.go`'s `nameOfService`, the `Makefile`, `Dockerfile`, `docker-compose.yml`, `.gitignore` and the READMEs). `.agents/skills` is left alone, because the skill describes the template. Then start a fresh history if you like (`rm -rf .git && git init`), and set the version in the `Makefile`.
+
 ### Running Locally
 
 You can run the service directly using Go:
@@ -105,7 +142,7 @@ The application is configured via environment variables. You can set these in a 
 | `TIMEOUT` | int | `15` | Request timeout in seconds. |
 | `STORAGE` | string | `sqlite` | Storage backend for request logs: `sqlite`, `mysql` or `filemaker`. |
 | `SQLITE_PATH` | string | `<binary dir>/<nameOfService>.db` | Path to SQLite database file (`STORAGE=sqlite`). |
-| `AUTH_TOKEN` | string | - | Token required for protected endpoints. |
+| `AUTH_TOKEN` | string | random per start | Token required for protected endpoints. When unset, a temporary token is generated and logged (see [Authentication token](#authentication-token)). |
 | `MYSQL_USERNAME` | string | - | MySQL username (required when `STORAGE=mysql`, as are `MYSQL_HOST` and `MYSQL_DATABASE`). |
 | `MYSQL_PASSWORD` | string | - | MySQL password. |
 | `MYSQL_HOST` | string | - | MySQL host address. |
