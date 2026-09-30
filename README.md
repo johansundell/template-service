@@ -138,7 +138,9 @@ To run the service using Docker Compose:
 docker compose up --build
 ```
 
-This will start the service on the configured port (default 8080) and mount `./data` to `/app/data` to persist SQLite database files (including WAL and SHM files).
+This will start the service on port 8080 and mount `./data` to `/app/data` to persist SQLite database files (including WAL and SHM files).
+
+Inside the container the service always listens on **8080** (the image sets `PORT=:8080`), which the image's `EXPOSE` and health check rely on. Choose the port on the host instead: `HOST_PORT=9090 docker compose up`, or `docker run -p 9090:8080 ...`. Don't set `PORT` for the container. The health check calls `GET /`, so the container turns unhealthy when the storage backend is unreachable.
 
 ## Configuration
 
