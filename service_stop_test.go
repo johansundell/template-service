@@ -129,7 +129,7 @@ func TestStop_DrainsRequestLogs(t *testing.T) {
 	}
 	defer st.Close()
 	now := time.Now().UTC()
-	logs, err := st.GetLogs(context.Background(), now.Add(-time.Hour), now.Add(time.Hour))
+	logs, err := st.GetLogs(context.Background(), now.Add(-time.Hour), now.Add(time.Hour), store.Page{})
 	if err != nil {
 		t.Fatalf("GetLogs failed: %v", err)
 	}

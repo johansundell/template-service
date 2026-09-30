@@ -47,7 +47,7 @@ func (f *fakeFileMaker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"value": []any{}})
 	case r.Method == http.MethodGet && r.URL.Path == base+"/Logs":
 		q := r.URL.Query()
-		f.lastQuery = map[string]string{"$select": q.Get("$select"), "$filter": q.Get("$filter"), "$orderby": q.Get("$orderby"), "$top": q.Get("$top")}
+		f.lastQuery = map[string]string{"$select": q.Get("$select"), "$filter": q.Get("$filter"), "$orderby": q.Get("$orderby"), "$top": q.Get("$top"), "$skip": q.Get("$skip")}
 		if q.Get("$top") == "0" {
 			if f.checkStatus != 0 {
 				http.Error(w, `{"error":{"code":"-1","message":"field Endpoint not found"}}`, f.checkStatus)
@@ -300,7 +300,7 @@ func TestFileMaker_GetLogs(t *testing.T) {
 	s := newTestFileMaker(t, f)
 
 	day := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
-	logs, err := s.GetLogs(context.Background(), day, day.AddDate(0, 0, 1))
+	logs, err := s.GetLogs(context.Background(), day, day.AddDate(0, 0, 1), Page{})
 	if err != nil {
 		t.Fatalf("GetLogs failed: %v", err)
 	}
@@ -330,5 +330,25 @@ func TestFileMaker_GetLogs(t *testing.T) {
 func TestParseFileMakerTime_Invalid(t *testing.T) {
 	if _, err := parseFileMakerTime("yesterday"); err == nil {
 		t.Error("expected an error for an unrecognized timestamp")
+	}
+}
+
+func TestFileMaker_GetLogsPage(t *testing.T) {
+	f := &fakeFileMaker{}
+	s := newTestFileMaker(t, f)
+	day := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+
+	if _, err := s.GetLogs(context.Background(), day, day.AddDate(0, 0, 1), Page{Limit: 3, Offset: 6}); err != nil {
+		t.Fatalf("GetLogs failed: %v", err)
+	}
+	if f.lastQuery["$top"] != "3" || f.lastQuery["$skip"] != "6" {
+		t.Errorf("expected $top=3 and $skip=6, got $top=%q $skip=%q", f.lastQuery["$top"], f.lastQuery["$skip"])
+	}
+
+	if _, err := s.GetLogs(context.Background(), day, day.AddDate(0, 0, 1), Page{}); err != nil {
+		t.Fatalf("GetLogs failed: %v", err)
+	}
+	if f.lastQuery["$top"] != "" || f.lastQuery["$skip"] != "" {
+		t.Errorf("expected no $top/$skip without a page, got $top=%q $skip=%q", f.lastQuery["$top"], f.lastQuery["$skip"])
 	}
 }

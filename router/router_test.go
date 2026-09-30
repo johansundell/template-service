@@ -487,7 +487,7 @@ func TestAuthMiddleware_Logs401OnInvalidToken(t *testing.T) {
 type nopStore struct{}
 
 func (nopStore) Ping(context.Context) error { return nil }
-func (nopStore) GetLogs(context.Context, time.Time, time.Time) ([]types.UsageLog, error) {
+func (nopStore) GetLogs(context.Context, time.Time, time.Time, store.Page) ([]types.UsageLog, error) {
 	return nil, nil
 }
 func (nopStore) LogRequests(context.Context, []types.UsageLog) error { return nil }

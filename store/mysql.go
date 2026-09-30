@@ -41,5 +41,6 @@ func NewMySQL(cfg mysql.Config) (*SQLStore, error) {
 	return &SQLStore{
 		db:      db,
 		timeArg: func(t time.Time) any { return t.UTC() },
+		noLimit: 1<<63 - 1, // MySQL has no "no limit" value; use the documented maximum
 	}, nil
 }

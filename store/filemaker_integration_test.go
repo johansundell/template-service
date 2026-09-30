@@ -92,7 +92,7 @@ func TestFileMakerIntegration(t *testing.T) {
 		t.Fatalf("LogRequests ($batch): %v", err)
 	}
 
-	logs, err := s.GetLogs(ctx, day, day.AddDate(0, 0, 1))
+	logs, err := s.GetLogs(ctx, day, day.AddDate(0, 0, 1), Page{})
 	if err != nil {
 		t.Fatalf("GetLogs: %v", err)
 	}

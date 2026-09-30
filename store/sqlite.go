@@ -22,6 +22,7 @@ func NewSQLite(file string) (*SQLStore, error) {
 	return &SQLStore{
 		db:      db,
 		timeArg: func(t time.Time) any { return t.UTC().Format(sqliteTimeLayout) },
+		noLimit: -1, // SQLite: a negative LIMIT means no limit
 	}, nil
 }
 

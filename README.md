@@ -28,7 +28,17 @@ These endpoints require an `Authorization` header with the configured `AUTH_TOKE
   - Logged to the database.
 
 - **GET /logs/:from/:to**
-  - Retrieve usage logs within a date range as a JSON array, oldest first. An empty range returns `[]`. Logs are written in the background, so the newest entries can take up to about a second to appear.
+  - Retrieve usage logs within a date range, oldest first (by time, then ID), one page at a time:
+
+    ```json
+    {
+      "entries": [{"id": 1, "status": 200, "method": "GET", "endpoint": "...", "created_at": "2026-09-30T10:15:00Z", "...": "..."}],
+      "next": "/logs/2026-09-30/2026-09-30?limit=1000&offset=1000"
+    }
+    ```
+
+  - `?limit=` sets the page size (default **1000**, at most **10000**) and `?offset=` skips that many entries (default 0). Other values get **400**. Follow `next` until it is `null` to read the whole range; an empty range returns `{"entries": [], "next": null}`.
+  - Logs are written in the background, so the newest entries can take up to about a second to appear.
   - `:from` and `:to` are dates in `YYYY-MM-DD` format (anything else gets **400**) and mean whole **UTC** days: from `:from` 00:00Z up to, not including, the day after `:to`. Timestamps are stored in UTC.
 
 ### Request logging
