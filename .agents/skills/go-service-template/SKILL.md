@@ -66,7 +66,7 @@ type Store interface {
 }
 ```
 
-`STORAGE` (`sqlite`, `mysql` or `filemaker`) selects the backend. Each backend has a constructor that opens and owns its connection (`store.NewSQLite(path)`, `store.NewMySQL(cfg)`, `store.NewFileMaker(ctx, cfg)`); the service opens the configured store, `defer`s `Close()` immediately, then pings it with a short deadline before building the router.
+`STORAGE` (`sqlite`, `mysql` or `filemaker`) selects the backend. Each backend has a constructor that opens and owns its connection (`store.NewSQLite(path)`, `store.NewMySQL(settings.MySqlSettings)`, `store.NewFileMaker(ctx, settings.FileMaker)`, each taking the `types` settings directly); the service looks the constructor up by `STORAGE` in one map, checked by a test against `types.StorageBackends`, opens the configured store, `defer`s `Close()` immediately, then pings it with a short deadline before building the router.
 
 `store.FileMakerStore` keeps logs in a FileMaker table created by a FileMaker developer. Its constructor fails unless a `$select` of every field with `$top=0` succeeds, so setup mistakes surface at deploy time. `LogRequests` sends one `$batch` change set with `Prefer: return=minimal`; 4xx responses (except 408 and 429) are wrapped with `store.Permanent`. `CreatedAt` is written as UTC without an offset and read back as UTC wall-clock time.
 
@@ -134,9 +134,10 @@ type Config struct {
 }
 ```
 
-Middleware logs through the leveled `router.Logger` interface. The service passes an adapter over the `kardianos/service` logger, so errors reach the system log at the right level:
+Middleware and the log queue log through one leveled interface, `logging.Logger` (`router.Logger` is an alias). The service passes an adapter over the `kardianos/service` logger, falling back to `logging.Std` before one exists, so errors reach the system log at the right level:
 
 ```go
+// package logging
 type Logger interface {
     Infof(format string, v ...interface{})
     Warningf(format string, v ...interface{})

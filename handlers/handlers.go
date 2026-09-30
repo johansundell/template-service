@@ -3,7 +3,7 @@ package handlers
 import (
 	"errors"
 	"io/fs"
-	"path/filepath"
+	"os"
 	"text/template"
 
 	"github.com/johansundell/template-service/store"
@@ -12,45 +12,37 @@ import (
 
 type Handler struct {
 	store            store.Store
-	useFileSystem    bool
-	tpls             fs.FS
+	templates        fs.FS // holds tmpl/*.html
 	nameOfService    string
 	versionOfService string
 }
 
-// NewHandler creates the handlers. In embedded mode (ufs false) the
-// templates filesystem f is required.
-func NewHandler(s store.Store, ufs bool, f fs.FS, name, version string) (*Handler, error) {
-	if !ufs && f == nil {
+// NewHandler creates the handlers. With useFileSystem, templates are read
+// from the tmpl folder next to the binary on every request (edit without
+// rebuilding) and embedded is ignored; otherwise the embedded filesystem is
+// required.
+func NewHandler(s store.Store, useFileSystem bool, embedded fs.FS, name, version string) (*Handler, error) {
+	templates := embedded
+	if useFileSystem {
+		templates = os.DirFS(utils.GetBinaryBasePath())
+	} else if embedded == nil {
 		return nil, errors.New("embedded templates filesystem is nil")
 	}
 	return &Handler{
 		store:            s,
-		useFileSystem:    ufs,
-		tpls:             f,
+		templates:        templates,
 		nameOfService:    name,
 		versionOfService: version,
 	}, nil
 }
 
 func (h *Handler) getTemplate(withBase bool, tmplFile ...string) (*template.Template, error) {
-	basePath := utils.GetBinaryBasePath()
-	files := make([]string, len(tmplFile))
-	for k, t := range tmplFile {
-		if h.useFileSystem {
-			files[k] = filepath.Join(basePath, "tmpl", t)
-		} else {
-			files[k] = "tmpl/" + t
-		}
-	}
-	if h.useFileSystem {
-		if withBase {
-			files = append(files, filepath.Join(basePath, "tmpl", "base.html"))
-		}
-		return template.ParseFiles(files...)
+	files := make([]string, 0, len(tmplFile)+1)
+	for _, t := range tmplFile {
+		files = append(files, "tmpl/"+t)
 	}
 	if withBase {
 		files = append(files, "tmpl/base.html")
 	}
-	return template.ParseFS(h.tpls, files...)
+	return template.ParseFS(h.templates, files...)
 }

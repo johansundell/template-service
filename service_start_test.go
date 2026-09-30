@@ -25,7 +25,7 @@ func TestStart_DatabaseInitializationErrorReturnsError(t *testing.T) {
 	defer func() { newSQLiteStore = originalConstructor }()
 
 	originalSettings := settings
-	settings = types.AppSettings{Port: ":8080", Timeout: 15, Storage: types.StorageSQLite}
+	settings = types.AppSettings{Port: ":8080", Timeout: 15 * time.Second, Storage: types.StorageSQLite}
 	defer func() { settings = originalSettings }()
 
 	p := &program{}
@@ -68,7 +68,7 @@ func TestStart_UsesConfiguredSqlitePath(t *testing.T) {
 	defer func() { newSQLiteStore = originalConstructor }()
 
 	originalSettings := settings
-	settings = types.AppSettings{Port: ":8080", Timeout: 15, Storage: types.StorageSQLite, SqlitePath: "/custom/data/my.db"}
+	settings = types.AppSettings{Port: ":8080", Timeout: 15 * time.Second, Storage: types.StorageSQLite, SqlitePath: "/custom/data/my.db"}
 	defer func() { settings = originalSettings }()
 
 	p := &program{}
@@ -87,10 +87,10 @@ func TestOpenStore_FileMakerMapsSettings(t *testing.T) {
 	}}
 	defer func() { settings = originalSettings }()
 
-	var got store.FileMakerConfig
+	var got types.FileMakerSettings
 	var deadline time.Time
 	orig := newFileMakerStore
-	newFileMakerStore = func(ctx context.Context, cfg store.FileMakerConfig) (store.Store, error) {
+	newFileMakerStore = func(ctx context.Context, cfg types.FileMakerSettings) (store.Store, error) {
 		got = cfg
 		deadline, _ = ctx.Deadline()
 		return nil, errors.New("stop here")
@@ -100,7 +100,7 @@ func TestOpenStore_FileMakerMapsSettings(t *testing.T) {
 	if _, err := openStore(); err == nil {
 		t.Fatal("expected the constructor's error to be returned")
 	}
-	want := store.FileMakerConfig{Host: "https://fms.example.com", Database: "Logging", Username: "u", Password: "p", Timeout: 3 * time.Second, Table: "ServiceLogs", CAFile: "/etc/ca.pem"}
+	want := settings.FileMaker
 	if got != want {
 		t.Errorf("expected %+v, got %+v", want, got)
 	}
@@ -128,7 +128,7 @@ func TestStart_FileMakerPingUsesFMSTimeout(t *testing.T) {
 
 	ds := &deadlineStore{}
 	orig := newFileMakerStore
-	newFileMakerStore = func(context.Context, store.FileMakerConfig) (store.Store, error) { return ds, nil }
+	newFileMakerStore = func(context.Context, types.FileMakerSettings) (store.Store, error) { return ds, nil }
 	defer func() { newFileMakerStore = orig }()
 
 	p := newProgram()
@@ -140,5 +140,16 @@ func TestStart_FileMakerPingUsesFMSTimeout(t *testing.T) {
 
 	if got := ds.pingDeadline.Sub(start); got < 6*time.Second || got > 8*time.Second {
 		t.Errorf("expected the startup ping deadline to follow FMS_TIMEOUT (7s), got %v", got)
+	}
+}
+
+func TestStoreOpenersMatchStorageBackends(t *testing.T) {
+	if len(storeOpeners) != len(types.StorageBackends) {
+		t.Errorf("storeOpeners has %d backends, types.StorageBackends lists %d", len(storeOpeners), len(types.StorageBackends))
+	}
+	for _, name := range types.StorageBackends {
+		if _, ok := storeOpeners[name]; !ok {
+			t.Errorf("STORAGE=%s passes validation but has no store constructor", name)
+		}
 	}
 }

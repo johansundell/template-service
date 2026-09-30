@@ -17,21 +17,6 @@ import (
 	"github.com/johansundell/template-service/types"
 )
 
-// FileMakerConfig configures the FileMaker storage backend.
-type FileMakerConfig struct {
-	Host     string // must start with https://
-	Database string
-	Username string
-	Password string
-	Timeout  time.Duration
-	Table    string // log table, created in FileMaker beforehand
-
-	// CAFile is an optional PEM file with extra CAs to trust, for servers
-	// with a private CA. InsecureSkipVerify disables certificate checks.
-	CAFile             string
-	InsecureSkipVerify bool
-}
-
 // fileMakerFields are the log table's fields, in the order they are selected.
 var fileMakerFields = []string{"ID", "Status", "Method", "Error", "Endpoint", "CreatedAt", "Request", "Response"}
 
@@ -47,8 +32,10 @@ type FileMakerStore struct {
 }
 
 // NewFileMaker connects to FileMaker Server and checks, within ctx, that the
-// log table and all its fields can be read. The table is never created here.
-func NewFileMaker(ctx context.Context, cfg FileMakerConfig) (*FileMakerStore, error) {
+// log table (cfg.LogTable) and all its fields can be read. The table is never
+// created here. cfg.Host must start with https://; cfg.CAFile adds trusted
+// CAs and cfg.InsecureSkipVerify disables certificate checks.
+func NewFileMaker(ctx context.Context, cfg types.FileMakerSettings) (*FileMakerStore, error) {
 	if !strings.HasPrefix(cfg.Host, "https://") {
 		return nil, fmt.Errorf("FileMaker host %q must start with https://", cfg.Host)
 	}
@@ -66,7 +53,7 @@ func NewFileMaker(ctx context.Context, cfg FileMakerConfig) (*FileMakerStore, er
 			Timeout:   cfg.Timeout,
 			TLSConfig: tlsConfig,
 		}),
-		table: cfg.Table,
+		table: cfg.LogTable,
 	}
 
 	query := url.Values{}
@@ -79,7 +66,7 @@ func NewFileMaker(ctx context.Context, cfg FileMakerConfig) (*FileMakerStore, er
 	return s, nil
 }
 
-func fileMakerTLSConfig(cfg FileMakerConfig) (*tls.Config, error) {
+func fileMakerTLSConfig(cfg types.FileMakerSettings) (*tls.Config, error) {
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: cfg.InsecureSkipVerify}
 	if cfg.CAFile == "" {
 		return tlsConfig, nil

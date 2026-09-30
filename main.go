@@ -16,10 +16,10 @@ const (
 var Version = "dev"
 
 //go:embed tmpl/*.html
-var tpls embed.FS
+var embeddedTemplates embed.FS
 
 //go:embed assets/*
-var embededFiles embed.FS
+var embeddedAssets embed.FS
 
 func main() {
 	svcFlag := flag.String("service", "", "Control the system service.")

@@ -16,7 +16,7 @@ import (
 	"github.com/johansundell/template-service/types"
 )
 
-func TestGetLogsHandler(t *testing.T) {
+func TestGetLogs(t *testing.T) {
 	// Setup
 	gin.SetMode(gin.TestMode)
 
@@ -49,7 +49,7 @@ func TestGetLogsHandler(t *testing.T) {
 		{Key: "to", Value: now.Format("2006-01-02")},
 	}
 
-	err = h.GetLogsHandler(c)
+	err = h.GetLogs(c)
 
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
@@ -69,7 +69,7 @@ func TestGetLogsHandler(t *testing.T) {
 	}
 }
 
-func TestGetLogsHandler_ToIsInclusiveUTCDay(t *testing.T) {
+func TestGetLogs_ToIsInclusiveUTCDay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	s, err := store.NewSQLite(":memory:")
@@ -94,7 +94,7 @@ func TestGetLogsHandler_ToIsInclusiveUTCDay(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/logs", nil)
 	c.Params = gin.Params{{Key: "from", Value: "2026-09-30"}, {Key: "to", Value: "2026-09-30"}}
 
-	if err := h.GetLogsHandler(c); err != nil {
+	if err := h.GetLogs(c); err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestGetLogsHandler_ToIsInclusiveUTCDay(t *testing.T) {
 	}
 }
 
-func TestGetLogsHandler_EmptyRangeReturnsArray(t *testing.T) {
+func TestGetLogs_EmptyRangeReturnsArray(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	s, err := store.NewSQLite(":memory:")
@@ -122,7 +122,7 @@ func TestGetLogsHandler_EmptyRangeReturnsArray(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/logs", nil)
 	c.Params = gin.Params{{Key: "from", Value: "2020-01-01"}, {Key: "to", Value: "2020-01-01"}}
 
-	if err := h.GetLogsHandler(c); err != nil {
+	if err := h.GetLogs(c); err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 	if got := strings.TrimSpace(w.Body.String()); got != `{"entries":[],"next":null}` {
@@ -154,7 +154,7 @@ func getLogsPage(t *testing.T, ps *pagingStore, query string) (*httptest.Respons
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/logs/2026-09-30/2026-09-30"+query, nil)
 	c.Params = gin.Params{{Key: "from", Value: "2026-09-30"}, {Key: "to", Value: "2026-09-30"}}
-	err := h.GetLogsHandler(c)
+	err := h.GetLogs(c)
 	var page logsPage
 	if err == nil {
 		if jerr := json.Unmarshal(w.Body.Bytes(), &page); jerr != nil {
@@ -164,7 +164,7 @@ func getLogsPage(t *testing.T, ps *pagingStore, query string) (*httptest.Respons
 	return w, page, err
 }
 
-func TestGetLogsHandler_DefaultLimitAndNext(t *testing.T) {
+func TestGetLogs_DefaultLimitAndNext(t *testing.T) {
 	ps := &pagingStore{n: 1001} // one more than the default limit: there is a next page
 	_, page, err := getLogsPage(t, ps, "")
 	if err != nil {
@@ -181,7 +181,7 @@ func TestGetLogsHandler_DefaultLimitAndNext(t *testing.T) {
 	}
 }
 
-func TestGetLogsHandler_LastPageHasNoNext(t *testing.T) {
+func TestGetLogs_LastPageHasNoNext(t *testing.T) {
 	ps := &pagingStore{n: 2}
 	_, page, err := getLogsPage(t, ps, "?limit=2&offset=4")
 	if err != nil {
@@ -195,7 +195,7 @@ func TestGetLogsHandler_LastPageHasNoNext(t *testing.T) {
 	}
 }
 
-func TestGetLogsHandler_InvalidPaging(t *testing.T) {
+func TestGetLogs_InvalidPaging(t *testing.T) {
 	for _, q := range []string{"?limit=0", "?limit=10001", "?limit=abc", "?offset=-1", "?offset=x"} {
 		_, _, err := getLogsPage(t, &pagingStore{}, q)
 		if err == nil || httperror.HTTPStatus(err) != http.StatusBadRequest {
@@ -207,7 +207,7 @@ func TestGetLogsHandler_InvalidPaging(t *testing.T) {
 	}
 }
 
-func TestGetLogsHandler_NonJSONBodies(t *testing.T) {
+func TestGetLogs_NonJSONBodies(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	s, err := store.NewSQLite(":memory:")
@@ -231,7 +231,7 @@ func TestGetLogsHandler_NonJSONBodies(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/logs/2026-09-30/2026-09-30", nil)
 	c.Params = gin.Params{{Key: "from", Value: "2026-09-30"}, {Key: "to", Value: "2026-09-30"}}
 
-	if err := h.GetLogsHandler(c); err != nil {
+	if err := h.GetLogs(c); err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 	var page struct {

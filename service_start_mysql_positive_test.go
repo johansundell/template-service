@@ -3,15 +3,15 @@ package main
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/types"
 )
 
 func TestStart_WithMySQLStorage_UsesMockedConstructor(t *testing.T) {
 	originalSettings := settings
-	settings = types.AppSettings{Port: freeAddr(t), Timeout: 15, Storage: types.StorageMySQL, AuthToken: "test-token"}
+	settings = types.AppSettings{Port: freeAddr(t), Timeout: 15 * time.Second, Storage: types.StorageMySQL, AuthToken: "test-token"}
 	settings.MySqlSettings.Username = "user"
 	settings.MySqlSettings.Host = "localhost"
 	settings.MySqlSettings.Port = "3306"
@@ -19,9 +19,9 @@ func TestStart_WithMySQLStorage_UsesMockedConstructor(t *testing.T) {
 	defer func() { settings = originalSettings }()
 
 	// Return a SQLite store instead of connecting to MySQL, and capture the config
-	var captured mysql.Config
+	var captured types.MySQLSettings
 	orig := newMySQLStore
-	newMySQLStore = func(cfg mysql.Config) (store.Store, error) {
+	newMySQLStore = func(cfg types.MySQLSettings) (store.Store, error) {
 		captured = cfg
 		return store.NewSQLite(filepath.Join(t.TempDir(), "test_mysql_positive.db"))
 	}
@@ -35,7 +35,7 @@ func TestStart_WithMySQLStorage_UsesMockedConstructor(t *testing.T) {
 		t.Fatalf("expected Stop to succeed, got error: %v", err)
 	}
 
-	if captured.Addr != "localhost:3306" || captured.DBName != "db" || captured.User != "user" {
-		t.Errorf("unexpected MySQL config: addr=%q db=%q user=%q", captured.Addr, captured.DBName, captured.User)
+	if captured != settings.MySqlSettings {
+		t.Errorf("expected the MYSQL_* settings to be passed on, got %+v", captured)
 	}
 }

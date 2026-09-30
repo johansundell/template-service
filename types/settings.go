@@ -13,6 +13,19 @@ const (
 	StorageFileMaker = "filemaker"
 )
 
+// StorageBackends lists every valid STORAGE value. The service must have a
+// constructor for each (see openStore); a test checks that they match.
+var StorageBackends = []string{StorageSQLite, StorageMySQL, StorageFileMaker}
+
+// MySQLSettings configures STORAGE=mysql (MYSQL_* variables).
+type MySQLSettings struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	Database string `json:"database"`
+}
+
 // FileMakerSettings configures STORAGE=filemaker (FMS_* variables).
 type FileMakerSettings struct {
 	Host               string        `json:"host"`
@@ -26,21 +39,15 @@ type FileMakerSettings struct {
 }
 
 type AppSettings struct {
-	Debug         bool   `json:"debug"`
-	Port          string `json:"port"`
-	UseFileSystem bool   `json:"useFileSystem"`
-	Timeout       int    `json:"timeout"`
-	Storage       string `json:"storage"`
-	AuthToken     string `json:"authToken"`
-	SqlitePath    string `json:"sqlitePath"`
-	MySqlSettings struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Host     string `json:"host"`
-		Port     string `json:"port"`
-		Database string `json:"database"`
-	} `json:"mysql"`
-	FileMaker FileMakerSettings `json:"filemaker"`
+	Debug         bool              `json:"debug"`
+	Port          string            `json:"port"`
+	UseFileSystem bool              `json:"useFileSystem"`
+	Timeout       time.Duration     `json:"timeout"` // TIMEOUT, in whole seconds
+	Storage       string            `json:"storage"`
+	AuthToken     string            `json:"authToken"`
+	SqlitePath    string            `json:"sqlitePath"`
+	MySqlSettings MySQLSettings     `json:"mysql"`
+	FileMaker     FileMakerSettings `json:"filemaker"`
 }
 
 // Validate verifies required settings and returns an error when configuration is invalid.
@@ -73,7 +80,7 @@ func (s AppSettings) Validate() error {
 			return fmt.Errorf("FMS_LOG_TABLE must not be empty")
 		}
 	default:
-		return fmt.Errorf("STORAGE must be %q, %q or %q, got %q", StorageSQLite, StorageMySQL, StorageFileMaker, s.Storage)
+		return fmt.Errorf("STORAGE must be one of %s, got %q", strings.Join(StorageBackends, ", "), s.Storage)
 	}
 	return nil
 }

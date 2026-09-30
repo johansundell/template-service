@@ -125,7 +125,7 @@ func (f *fakeFileMaker) handleBatch(w http.ResponseWriter, r *http.Request) {
 
 // startFakeFileMaker serves f over TLS and returns a config that trusts it
 // through CAFile.
-func startFakeFileMaker(t *testing.T, f *fakeFileMaker) FileMakerConfig {
+func startFakeFileMaker(t *testing.T, f *fakeFileMaker) types.FileMakerSettings {
 	t.Helper()
 	srv := httptest.NewTLSServer(f)
 	t.Cleanup(srv.Close)
@@ -135,9 +135,9 @@ func startFakeFileMaker(t *testing.T, f *fakeFileMaker) FileMakerConfig {
 	if err := os.WriteFile(caFile, certPEM, 0o600); err != nil {
 		t.Fatalf("write CA file: %v", err)
 	}
-	return FileMakerConfig{
+	return types.FileMakerSettings{
 		Host: srv.URL, Database: "Logging", Username: "admin", Password: "secret",
-		Timeout: 5 * time.Second, Table: "Logs", CAFile: caFile,
+		Timeout: 5 * time.Second, LogTable: "Logs", CAFile: caFile,
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/johansundell/template-service/logging"
 	"github.com/johansundell/template-service/store"
 	"github.com/johansundell/template-service/types"
 )
@@ -24,11 +25,7 @@ const (
 )
 
 // Logger is the leveled logger the queue reports to.
-type Logger interface {
-	Infof(format string, v ...interface{})
-	Warningf(format string, v ...interface{})
-	Errorf(format string, v ...interface{})
-}
+type Logger = logging.Logger
 
 // Queue buffers request log entries and writes them to a store in batches
 // from a single worker goroutine.
