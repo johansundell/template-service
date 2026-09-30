@@ -130,6 +130,8 @@ make build
 ./template-service
 ```
 
+The cross-platform targets (`make compile`, `make dist`, `make release`) need `gox` and `github-release`. Install them once with `make deps`; they go into `$(go env GOPATH)/bin`, which must be on your `PATH`.
+
 The service resolves paths relative to **its binary's folder**: the `assets` and `tmpl` folders when `USE_FILE_SYSTEM=true`, a `.env` file (after the current directory), and the default `SQLITE_PATH`. `go run .` builds the binary in a temporary Go folder, which has two effects:
 
 - **`USE_FILE_SYSTEM=true` doesn't work with `go run .`**: the assets and templates aren't found, so `GET /` returns 500 and `/assets/...` returns 404. Use embedded assets (the default), or build first with `go build` or `make build` and run the binary from the repo, as above.
