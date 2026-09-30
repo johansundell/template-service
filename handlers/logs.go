@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/johansundell/template-service/httperror"
+	"github.com/johansundell/template-service/types"
 )
 
 func (h *Handler) GetLogsHandler(c *gin.Context) error {
@@ -27,6 +28,9 @@ func (h *Handler) GetLogsHandler(c *gin.Context) error {
 	logs, err := h.store.GetLogs(c.Request.Context(), from, to.AddDate(0, 0, 1))
 	if err != nil {
 		return httperror.ReturnWithHTTPStatus(err, http.StatusInternalServerError)
+	}
+	if logs == nil {
+		logs = []types.UsageLog{} // an empty range is [], not null
 	}
 
 	c.JSON(http.StatusOK, logs)

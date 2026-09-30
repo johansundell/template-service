@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -102,5 +103,28 @@ func TestGetLogsHandler_ToIsInclusiveUTCDay(t *testing.T) {
 	}
 	if len(logs) != 1 || logs[0].Endpoint != "/late-on-day" {
 		t.Errorf("Expected only /late-on-day, got %+v", logs)
+	}
+}
+
+func TestGetLogsHandler_EmptyRangeReturnsArray(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	s, err := store.NewSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create db: %v", err)
+	}
+	defer s.Close()
+
+	h := NewHandler(s, false, fstest.MapFS{}, "test-service", "v1.0")
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/logs", nil)
+	c.Params = gin.Params{{Key: "from", Value: "2020-01-01"}, {Key: "to", Value: "2020-01-01"}}
+
+	if err := h.GetLogsHandler(c); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if got := strings.TrimSpace(w.Body.String()); got != "[]" {
+		t.Errorf("Expected [] for an empty range, got %q", got)
 	}
 }
