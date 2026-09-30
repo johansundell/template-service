@@ -60,6 +60,34 @@ func TestPong(t *testing.T) {
 		}
 	})
 
+	for name, body := range map[string]string{"null": `null`, "array": `[{"key":"value"}]`, "string": `"text"`, "number": `42`} {
+		t.Run("Rejects "+name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/pong", bytes.NewBufferString(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			err := h.Pong(c)
+			if err == nil || httperror.HTTPStatus(err) != http.StatusBadRequest {
+				t.Fatalf("Expected 400 for %s, got err=%v status=%d", body, err, w.Code)
+			}
+		})
+	}
+
+	t.Run("Empty object", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/pong", bytes.NewBufferString(`{}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+
+		if err := h.Pong(c); err != nil {
+			t.Fatalf("Expected {} to be accepted, got %v", err)
+		}
+		if got := w.Body.String(); got != `{"message":{}}` {
+			t.Errorf("Expected {\"message\":{}}, got %s", got)
+		}
+	})
+
 	t.Run("Empty body", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
