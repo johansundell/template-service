@@ -38,8 +38,13 @@ COPY --from=builder --chown=appuser:appgroup /app/tmpl ./tmpl
 
 USER appuser
 
+# The container always listens on 8080: EXPOSE and the health check below rely
+# on it. Choose the port on the host instead (docker run -p 9090:8080, or
+# HOST_PORT in docker-compose.yml); don't override PORT for the container.
+ENV PORT=:8080
 EXPOSE 8080
 
+# GET / answers 503 when storage is down, so the container turns unhealthy.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -qO- http://localhost:8080/ || exit 1
 
