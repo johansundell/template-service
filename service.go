@@ -97,7 +97,11 @@ func (p *program) run(startup chan<- error) error {
 	}
 	defer st.Close()
 
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), 5*time.Second)
+	pingTimeout := 5 * time.Second
+	if settings.Storage == types.StorageFileMaker {
+		pingTimeout = settings.FileMaker.Timeout // FMS_TIMEOUT covers the whole startup check
+	}
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), pingTimeout)
 	err = st.Ping(pingCtx)
 	cancelPing()
 	if err != nil {
@@ -110,7 +114,7 @@ func (p *program) run(startup chan<- error) error {
 	// Request logs are written in the background. The deferred Close runs after
 	// the HTTP server has shut down, drains the queue for up to 5 more seconds
 	// and runs before the store is closed.
-	logQueue := logqueue.New(st, appLogger())
+	logQueue := logqueue.New(st, appLogger(), settings.Debug)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

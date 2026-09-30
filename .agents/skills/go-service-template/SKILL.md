@@ -1,6 +1,6 @@
 ---
 name: go-service-template
-description: Square Moon template-service for Go daemons - kardianos/service lifecycle, store.Store with WASM SQLite/MySQL, Gin routes with error-returning handlers, embedded or filesystem assets. Use when working in a repo that already follows template-service, or when explicitly asked to scaffold a new Square Moon Go service. Not general Go or general Gin guidance.
+description: Square Moon template-service for Go daemons - kardianos/service lifecycle, store.Store with WASM SQLite, MySQL or FileMaker (OData), Gin routes with error-returning handlers, embedded or filesystem assets. Use when working in a repo that already follows template-service, or when explicitly asked to scaffold a new Square Moon Go service. Not general Go or general Gin guidance.
 ---
 
 # Go Service Template Pattern
@@ -29,12 +29,12 @@ The code examples are illustrative, not compilable. The template-service reposit
                 |                      |     Middleware Pipeline     |
                 |                      |   Wrap -> Auth -> Logger    |
                 |                      +--------------+--------------+
-          +-----+-----+                               |
-          |           |                +--------------v--------------+
-     +----v----+ +----v----+           |      handlers.Handler       |
-     | SQLite  | |  MySQL  |           |  func(*gin.Context) error   |
-     | Pure Go | | Driver  |           +-----------------------------+
-     +---------+ +---------+
+     +----------+-----------+                         |
+     |          |           |          +--------------v--------------+
++----v----+ +---v----+ +----v------+   |      handlers.Handler       |
+| SQLite  | | MySQL  | | FileMaker |   |  func(*gin.Context) error   |
+| Pure Go | | Driver | |  OData    |   +-----------------------------+
++---------+ +--------+ +-----------+
 ```
 
 ## Rules
@@ -42,7 +42,7 @@ The code examples are illustrative, not compilable. The template-service reposit
 1. **Service lifecycle**: `Start` validates configuration and initializes storage, routing, and the listener before returning startup success. Serving runs asynchronously. `Stop` triggers graceful shutdown with a five-second deadline and returns only after shutdown completes.
 2. **Storage boundary**: Handlers and middleware depend on `store.Store`, not concrete database types.
 3. **SQLite**: Use `github.com/ncruces/go-sqlite3` to keep builds CGO-free.
-   **FileMaker**: Reach FileMaker Server only through `fmsodata` over `https://` with verified certificates (`FMS_CA_FILE` for a private CA); Basic auth is sent with every request. The service never creates FileMaker tables; it checks them at startup.
+   **FileMaker**: Reach FileMaker Server only through `fmsodata` over `https://` with verified certificates (`FMS_CA_FILE` for a private CA); Basic auth is sent with every request. `FMS_INSECURE_SKIP_VERIFY=true` is the only exception: it disables verification and must log a warning on every start. The service never creates FileMaker tables; it checks them at startup.
 4. **Error handlers**: Handlers return `error` and use `httperror.ReturnWithHTTPStatus` for HTTP failures.
 5. **Routes**: Declare routes as `Route` values in `router.GetRoutes(handler)`; `router.NewRouter(cfg)` applies middleware and registers them.
 6. **Authentication**: Protected routes fail closed. `router.NewRouter` rejects an empty `AUTH_TOKEN` when any route has `UseAuth: true`. When `AUTH_TOKEN` is unset, the service generates a random temporary token and logs it before building the router; real deployments must set `AUTH_TOKEN`. Compare tokens with `subtle.ConstantTimeCompare`.
@@ -165,7 +165,7 @@ func GetRoutes(handler *handlers.Handler) Routes {
 
 With `DEBUG=true` (`cfg.Settings.Debug`), `NewRouter` logs the route table and adds `router.AccessLog`, one line per request, through the injected logger rather than Gin's stdout debug mode, so the output reaches the service log.
 
-`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a store (returning an error instead of registering an unsafe route), applies authentication outside the logger, then registers `WrapHandler`. Request order is `WrapHandler -> Auth -> Logger -> handler`:
+`router.NewRouter(cfg)` validates that `cfg.Handler` is provided, obtains routes via `router.GetRoutes(cfg.Handler)`, validates that every `UseAuth` route has a token and every `UseLogger` route has a log sink (returning an error instead of registering an unsafe route), applies authentication outside the logger, then registers `WrapHandler`. Request order is `WrapHandler -> Auth -> Logger -> handler`:
 
 ```go
 if cfg.Handler == nil {
@@ -176,8 +176,8 @@ for _, route := range GetRoutes(cfg.Handler) {
     if route.UseAuth && cfg.Settings.AuthToken == "" {
         return nil, fmt.Errorf("AUTH_TOKEN must be configured for route %q", route.Name)
     }
-    if route.UseLogger && cfg.Store == nil {
-        return nil, fmt.Errorf("store must be configured for logged route %q", route.Name)
+    if route.UseLogger && cfg.LogSink == nil {
+        return nil, fmt.Errorf("log sink must be configured for logged route %q", route.Name)
     }
 
     fn := route.HandlerFunc
@@ -279,7 +279,7 @@ Apply auth outside the logger so unauthorized request bodies are never persisted
 The middleware never writes to the store itself: a slow or unavailable store must not slow down or fail a request. `logqueue.Queue` writes entries from one background worker:
 
 - A bounded queue (1000 entries); when it is full, new entries are dropped with at most one warning per minute that carries the count.
-- Batches of up to 50 entries or 1 second, written with `Store.LogRequests` (one SQL transaction per batch).
+- Batches of up to 50 entries or 1 second, written with `Store.LogRequests`: one SQL transaction per batch, or one `$batch` request for FileMaker. Each written batch is logged only with `DEBUG=true`; drops and failures are always logged.
 - A failed batch is retried with doubling backoff for about 30 seconds, then dropped and logged; errors wrapped with `store.Permanent` are dropped at once.
 - The service closes the queue after the HTTP server has shut down, draining it for up to 5 more seconds before the store is closed; entries left after that are counted and logged as an error. The drain deadline overrides the retry schedule.
 

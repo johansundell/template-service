@@ -9,7 +9,7 @@ Every response carries an `X-Version` header with the build version. Errors are 
 ### Public Endpoints
 
 - **GET /**
-  - Health check. Pings the storage backend and returns an HTML page, or JSON `{"title", "name", "version", "dbStatus"}` when the request sends `Accept: application/json`.
+  - Health check. Pings the storage backend and returns an HTML page, or JSON `{"title", "name", "version", "dbStatus"}` when the request's `Accept` header prefers JSON (for example `application/json` or `application/json, text/plain`). Browsers and requests without an `Accept` header get HTML.
   - `dbStatus` is `OK`, or the storage error. The status is **200** when storage answers and **503** when it doesn't, so Docker's `HEALTHCHECK` and load balancers see the service as unhealthy.
 
 - **GET /ping/:argument**
@@ -44,6 +44,8 @@ These endpoints require an `Authorization` header with the configured `AUTH_TOKE
 ### Request logging
 
 `GET /ping/:argument` and `POST /pong` are logged to the storage backend: method, endpoint, status, error, and the full request and response bodies. Bodies over **1 MiB** on these routes are rejected with **413** and not logged. In `GET /logs`, a body that is valid JSON appears as JSON; any other body (plain text or truncated data) appears as a JSON string, and an empty body as `null`. For requests that end in an error, the response body is written after logging, so the entry has `"response": null` with the status and error message in their own fields.
+
+Entries are written in the background (see Features), so logging never slows a request, but entries **can be lost**: when more than 1,000 are waiting (a slow or unreachable database), new ones are dropped; a batch that keeps failing is dropped after about 30 seconds of retries; and at shutdown, entries not written within 5 seconds are dropped. Each of these is logged as a warning or error with the number of entries.
 
 `/ping` is public, so anyone who can reach the service can add rows to the log table. Put the service behind a firewall or proxy, or turn `UseLogger` off for public routes in `router/routes.go`, if that matters for your deployment.
 
@@ -163,7 +165,7 @@ The application is configured via environment variables. You can set these in a 
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DEBUG` | bool | `false` | Log the route table at startup and one access log line per request (method, path, status, duration, client IP) through the service log. For troubleshooting; leave it off in normal use. |
+| `DEBUG` | bool | `false` | Log the route table at startup, one access log line per request (method, path, status, duration, client IP), and each written batch of request log entries, through the service log. For troubleshooting; leave it off in normal use. |
 | `PORT` | string | `:8080` | The port the server listens on. |
 | `USE_FILE_SYSTEM` | bool | `false` | If true, serves assets and templates from the `assets` and `tmpl` folders next to the binary (edit them without rebuilding). If false, uses the embedded copies. Doesn't work with `go run .` (see [Running Locally](#running-locally)). |
 | `TIMEOUT` | int | `15` | Request timeout in seconds. |

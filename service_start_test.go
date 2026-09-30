@@ -108,3 +108,37 @@ func TestOpenStore_FileMakerMapsSettings(t *testing.T) {
 		t.Errorf("expected the startup check to run within FMS_TIMEOUT, got deadline %v", deadline)
 	}
 }
+
+// deadlineStore records the deadline of the startup Ping.
+type deadlineStore struct {
+	store.Store
+	pingDeadline time.Time
+}
+
+func (d *deadlineStore) Ping(ctx context.Context) error {
+	d.pingDeadline, _ = ctx.Deadline()
+	return nil
+}
+func (d *deadlineStore) Close() error { return nil }
+
+func TestStart_FileMakerPingUsesFMSTimeout(t *testing.T) {
+	useTestSettings(t, freeAddr(t))
+	settings.Storage = types.StorageFileMaker
+	settings.FileMaker.Timeout = 7 * time.Second
+
+	ds := &deadlineStore{}
+	orig := newFileMakerStore
+	newFileMakerStore = func(context.Context, store.FileMakerConfig) (store.Store, error) { return ds, nil }
+	defer func() { newFileMakerStore = orig }()
+
+	p := newProgram()
+	start := time.Now()
+	if err := p.startWorker(); err != nil {
+		t.Fatalf("expected startup to succeed, got %v", err)
+	}
+	p.Stop(nil)
+
+	if got := ds.pingDeadline.Sub(start); got < 6*time.Second || got > 8*time.Second {
+		t.Errorf("expected the startup ping deadline to follow FMS_TIMEOUT (7s), got %v", got)
+	}
+}
