@@ -74,6 +74,14 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 		})
 	}
 
+	router.NoRoute(func(c *gin.Context) {
+		c.String(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	})
+	router.HandleMethodNotAllowed = true
+	router.NoMethod(func(c *gin.Context) {
+		c.String(http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed))
+	})
+
 	routes := GetRoutes(cfg.Handler)
 
 	l := logging.OrStd(cfg.Logger)
