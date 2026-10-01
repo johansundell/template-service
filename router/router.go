@@ -67,6 +67,13 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
+	if cfg.Version != "" {
+		router.Use(func(c *gin.Context) {
+			c.Header("X-Version", cfg.Version)
+			c.Next()
+		})
+	}
+
 	router.NoRoute(func(c *gin.Context) {
 		c.String(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	})
@@ -105,7 +112,7 @@ func NewRouter(cfg Config) (*gin.Engine, error) {
 			fn = AuthMiddleware(cfg.Settings.AuthToken, l)(fn)
 		}
 
-		router.Handle(route.Method, route.Pattern, WrapHandler(fn, cfg.Version))
+		router.Handle(route.Method, route.Pattern, WrapHandler(fn))
 		if debug {
 			l.Infof("route %s %s (%s) auth=%v logged=%v", route.Method, route.Pattern, route.Name, route.UseAuth, route.UseLogger)
 		}
@@ -194,12 +201,9 @@ func getStaticFiles(assets fs.FS, useLocal bool) (http.FileSystem, error) {
 	return http.FS(fsys), nil
 }
 
-// WrapHandler wraps a HandlerFuncWithError into a Gin HandlerFunc and injects X-Version
-func WrapHandler(inner HandlerFuncWithError, version string) gin.HandlerFunc {
+// WrapHandler wraps a HandlerFuncWithError into a Gin HandlerFunc
+func WrapHandler(inner HandlerFuncWithError) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if version != "" {
-			c.Header("X-Version", version)
-		}
 		if err := inner(c); err != nil {
 			c.String(httperror.HTTPStatus(err), httperror.StatusText(err))
 		}

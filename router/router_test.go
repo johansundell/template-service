@@ -147,31 +147,11 @@ func TestAuthMiddleware_FailClosed(t *testing.T) {
 	}
 
 	// Verify WrapHandler turns it into 500 Internal Server Error
-	wrapped := router.WrapHandler(handler, "1.0.0")
+	wrapped := router.WrapHandler(handler)
 	wrapped(c)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", w.Code)
-	}
-}
-
-func TestWrapHandler_VersionHeader(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	const testVersion = "v1.2.3-test"
-	wrapped := router.WrapHandler(func(c *gin.Context) error {
-		c.Status(http.StatusOK)
-		return nil
-	}, testVersion)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest("GET", "/test", nil)
-
-	wrapped(c)
-
-	if got := w.Header().Get("X-Version"); got != testVersion {
-		t.Errorf("Expected X-Version %q, got %q", testVersion, got)
 	}
 }
 
@@ -428,7 +408,7 @@ func TestAuthMiddleware_Logs401OnMissingHeader(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/protected", nil)
 
-	wrapped := router.WrapHandler(handler, "1.0.0")
+	wrapped := router.WrapHandler(handler)
 	wrapped(c)
 
 	if w.Code != http.StatusUnauthorized {
@@ -460,7 +440,7 @@ func TestAuthMiddleware_Logs401OnInvalidToken(t *testing.T) {
 	c.Request, _ = http.NewRequest("POST", "/admin", nil)
 	c.Request.Header.Set("Authorization", "Bearer super-secret-wrong-token")
 
-	wrapped := router.WrapHandler(handler, "1.0.0")
+	wrapped := router.WrapHandler(handler)
 	wrapped(c)
 
 	if w.Code != http.StatusUnauthorized {
@@ -517,7 +497,7 @@ func TestLoggerMiddleware_RejectsOversizedBody(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("POST", "/big", bytes.NewReader(make([]byte, 1<<20+1)))
 
-	router.WrapHandler(handler, "1.0.0")(c)
+	router.WrapHandler(handler)(c)
 
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("Expected status %d, got %d", http.StatusRequestEntityTooLarge, w.Code)
@@ -552,7 +532,7 @@ func TestLoggerMiddleware_AcceptsBodyAtLimit(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("POST", "/limit", bytes.NewReader(make([]byte, 1<<20)))
 
-	router.WrapHandler(handler, "1.0.0")(c)
+	router.WrapHandler(handler)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
@@ -576,7 +556,7 @@ func TestLoggerMiddleware_CapturesWriteString(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/write-string", nil)
 
-	router.WrapHandler(handler, "1.0.0")(c)
+	router.WrapHandler(handler)(c)
 
 	if len(rs.entries) != 1 || string(rs.entries[0].Response) != `{"via":"WriteString"}` {
 		t.Errorf("Expected logged response %q, got %+v", `{"via":"WriteString"}`, rs.entries)
