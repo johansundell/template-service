@@ -192,12 +192,13 @@ func TestQueue_RetriesThenDrops(t *testing.T) {
 	q.Enqueue(entry(0))
 	waitFor(t, "batch dropped", func() bool { return len(tl.find("ERROR", "after retrying")) == 1 })
 
-	// retryStart 1ms doubling within a 20ms budget: 1+2+4+8 = 15ms, so 1 try + 4 retries.
-	if _, _, calls := fs.snapshot(); calls != 5 {
-		t.Errorf("expected 5 attempts, got %d", calls)
+	// retryStart 1ms doubling within a 20ms budget: waits of 1, 2, 4, 8, and 5ms = 20ms total.
+	// So 1 try + 5 retries = 6 attempts.
+	if _, _, calls := fs.snapshot(); calls != 6 {
+		t.Errorf("expected 6 attempts, got %d", calls)
 	}
-	if n := len(tl.find("WARN", "retrying")); n != 4 {
-		t.Errorf("expected 4 retry warnings, got %d", n)
+	if n := len(tl.find("WARN", "retrying")); n != 5 {
+		t.Errorf("expected 5 retry warnings, got %d", n)
 	}
 }
 

@@ -19,7 +19,7 @@ const (
 	batchSize     = 50               // entries per write
 	flushInterval = time.Second      // longest an entry waits for a batch to fill
 	retryStart    = time.Second      // first retry delay, doubled per attempt
-	retryBudget   = 30 * time.Second // total retry delay before a batch is dropped
+	retryBudget   = 60 * time.Second // total retry delay before a batch is dropped
 	writeTimeout  = 10 * time.Second // deadline for a single write attempt
 	dropWarnEvery = time.Minute      // at most one queue-full warning per interval
 )
@@ -231,17 +231,21 @@ func (q *Queue) write(ctx context.Context, batch []types.UsageLog) bool {
 			q.log.Errorf("dropped %d request log entries: %v", len(batch), err)
 			return false
 		}
-		if waited+delay > q.retryBudget {
+		if waited >= q.retryBudget {
 			q.log.Errorf("dropped %d request log entries after retrying for %v: %v", len(batch), waited, err)
 			return false
 		}
-		q.log.Warningf("failed to persist %d request log entries, retrying in %v: %v", len(batch), delay, err)
+		sleep := delay
+		if waited+sleep > q.retryBudget {
+			sleep = q.retryBudget - waited
+		}
+		q.log.Warningf("failed to persist %d request log entries, retrying in %v: %v", len(batch), sleep, err)
 		select {
-		case <-time.After(delay):
+		case <-time.After(sleep):
 		case <-ctx.Done():
 			return false
 		}
-		waited += delay
+		waited += sleep
 		delay *= 2
 	}
 }
