@@ -43,7 +43,7 @@ These endpoints require an `Authorization` header with the configured `AUTH_TOKE
 
 ### Request logging
 
-`GET /ping/:argument` and `POST /pong` are logged to the storage backend: method, endpoint, status, error, and the full request and response bodies. Bodies over **1 MiB** on these routes are rejected with **413** and not logged. In `GET /logs`, a body that is valid JSON appears as JSON; any other body (plain text or truncated data) appears as a JSON string, and an empty body as `null`. For requests that end in an error, the response body is written after logging, so the entry has `"response": null` with the status and error message in their own fields.
+`GET /ping/:argument` and `POST /pong` are logged to the storage backend: method, endpoint, status, error, and the full request and response bodies. Bodies over **1 MiB** on these routes are rejected with **413** and not logged. In `GET /logs`, a body that is valid JSON appears as JSON; any other body (plain text or truncated data) appears as a JSON string, and an empty body as `{}`. For requests that end in an error, the response body is written after logging, so the entry has `"response": null` with the status and error message in their own fields.
 
 Entries are written in the background (see Features), so logging never slows a request, but entries **can be lost**: when more than 1,000 are waiting (a slow or unreachable database), new ones are dropped; a batch that keeps failing is dropped after about 30 seconds of retries; and at shutdown, entries not written within 5 seconds are dropped. Each of these is logged as a warning or error with the number of entries.
 
