@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -25,7 +27,7 @@ func mysqlConfig(s types.MySQLSettings) mysql.Config {
 
 // NewMySQL connects to MySQL and returns a store that owns the connection.
 // Timestamps are stored in UTC.
-func NewMySQL(s types.MySQLSettings) (*SQLStore, error) {
+func NewMySQL(s types.MySQLSettings) (Store, error) {
 	cfg := mysqlConfig(s)
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
@@ -44,17 +46,41 @@ func NewMySQL(s types.MySQLSettings) (*SQLStore, error) {
 		error TEXT,
 		endpoint TEXT,
 		created_at DATETIME,
-		response TEXT,
-		request TEXT
+		response MEDIUMTEXT,
+		request MEDIUMTEXT
 	)`)
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
 
-	return &SQLStore{
-		db:      db,
-		timeArg: func(t time.Time) any { return t.UTC() },
-		noLimit: 1<<63 - 1, // MySQL has no "no limit" value; use the documented maximum
+	// Update existing schema; modifying a column that is already MEDIUMTEXT is cheap and idempotent.
+	_, err = db.Exec(`ALTER TABLE request_logs MODIFY request MEDIUMTEXT, MODIFY response MEDIUMTEXT`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return &mysqlStore{
+		SQLStore: &SQLStore{
+			db:      db,
+			timeArg: func(t time.Time) any { return t.UTC() },
+			noLimit: 1<<63 - 1, // MySQL has no "no limit" value; use the documented maximum
+		},
 	}, nil
+}
+
+type mysqlStore struct {
+	*SQLStore
+}
+
+func (s *mysqlStore) LogRequests(ctx context.Context, entries []types.UsageLog) error {
+	err := s.SQLStore.LogRequests(ctx, entries)
+	if err != nil {
+		var myErr *mysql.MySQLError
+		if errors.As(err, &myErr) && myErr.Number == 1406 {
+			return Permanent(err)
+		}
+	}
+	return err
 }
