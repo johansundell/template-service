@@ -14,8 +14,13 @@ func mysqlConfig(s types.MySQLSettings) mysql.Config {
 	cfg := mysql.NewConfig()
 	cfg.User = s.Username
 	cfg.Passwd = s.Password
-	cfg.Net = "tcp"
-	cfg.Addr = s.Host + ":" + s.Port
+	if len(s.Host) > 0 && s.Host[0] == '/' {
+		cfg.Net = "unix"
+		cfg.Addr = s.Host
+	} else {
+		cfg.Net = "tcp"
+		cfg.Addr = s.Host + ":" + s.Port
+	}
 	cfg.DBName = s.Database
 	cfg.AllowNativePasswords = true
 	cfg.ParseTime = true
