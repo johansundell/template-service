@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 )
 
+var osExecutable = os.Executable
+
 func GetUrl(r *http.Request, path string) string {
 	query := r.URL.RawQuery
 	if query != "" {
@@ -16,7 +18,7 @@ func GetUrl(r *http.Request, path string) string {
 }
 
 func GetBinaryBasePath() string {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err != nil {
 		log.Println("Failed to get executable path, using current directory as base path:", err)
 		return "./"
