@@ -141,8 +141,17 @@ func (p *program) run(startup chan<- error) error {
 		startup <- err
 		return err
 	}
+	timeoutHandler := http.TimeoutHandler(routerEngine, settings.Timeout, "Timeout")
+	var rootHandler http.Handler = timeoutHandler
+	if Version != "" {
+		rootHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Version", Version)
+			timeoutHandler.ServeHTTP(w, r)
+		})
+	}
+
 	srv := &http.Server{
-		Handler: http.TimeoutHandler(routerEngine, settings.Timeout, "Timeout"),
+		Handler: rootHandler,
 		Addr:    settings.Port,
 	}
 	listener, err := netListen("tcp", settings.Port)
