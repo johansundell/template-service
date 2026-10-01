@@ -228,7 +228,14 @@ func (q *Queue) write(ctx context.Context, batch []types.UsageLog) bool {
 			return false
 		}
 		if store.IsPermanent(err) {
-			q.log.Errorf("dropped %d request log entries: %v", len(batch), err)
+			if len(batch) > 1 {
+				q.log.Warningf("batch failed permanently, retrying %d entries one by one: %v", len(batch), err)
+				for _, e := range batch {
+					q.write(ctx, []types.UsageLog{e})
+				}
+				return true
+			}
+			q.log.Errorf("dropped 1 request log entry: %v", err)
 			return false
 		}
 		if waited+delay > q.retryBudget {
