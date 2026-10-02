@@ -1,6 +1,9 @@
 services:
   template-service:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
     ports:
       # The container listens on 8080 (set in the Dockerfile); pick the host
       # port with HOST_PORT, e.g. HOST_PORT=9090 docker compose up
