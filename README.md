@@ -161,7 +161,7 @@ Inside the container the service always listens on **8080** (the image sets `POR
 
 ## Configuration
 
-The application is configured via environment variables. You can set these in a `.env` file in the root directory.
+The application is configured via environment variables. You can set these in a `.env` file in the root directory. Environment variables explicitly set in the system or terminal take precedence over values in the `.env` file.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
