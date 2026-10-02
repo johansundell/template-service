@@ -11,14 +11,14 @@ import (
 func (h *Handler) Ping(c *gin.Context) error {
 	argument := c.Param("argument")
 
-	p := struct {
+	payload := struct {
 		Result string `json:"result"`
 	}{Result: argument}
 
-	if p.Result == "notfound" {
+	if payload.Result == "notfound" {
 		return httperror.ReturnWithHTTPStatus(errors.New("Nope"), http.StatusNotFound)
 	}
 
-	c.JSON(http.StatusOK, p)
+	c.JSON(http.StatusOK, payload)
 	return nil
 }
