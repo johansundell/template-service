@@ -17,14 +17,14 @@ func TestAppSettingsValidate(t *testing.T) {
 		{"unknown storage", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: "postgres"}, true},
 		{"missing port", AppSettings{Port: "", Timeout: 10 * time.Second, Storage: StorageSQLite}, true},
 		{"invalid timeout", AppSettings{Port: ":8080", Timeout: 0, Storage: StorageSQLite}, true},
-		{"mysql missing fields", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageMySQL, MySqlSettings: struct {
+		{"mysql missing fields", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageMySQL, MySQL: struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
 			Host     string `json:"host"`
 			Port     string `json:"port"`
 			Database string `json:"database"`
 		}{}}, true},
-		{"mysql provided", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageMySQL, MySqlSettings: struct {
+		{"mysql provided", AppSettings{Port: ":8080", Timeout: 10 * time.Second, Storage: StorageMySQL, MySQL: struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
 			Host     string `json:"host"`

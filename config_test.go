@@ -76,20 +76,20 @@ func TestLoadSettings_MySQLPort(t *testing.T) {
 		tmpEnv.Close()
 
 		loadSettings(tmpEnv.Name())
-		return settings.MySqlSettings.Port
+		return settings.MySQL.Port
 	}
 
 	t.Run("port with leading colon", func(t *testing.T) {
 		got := testPort(t, "MYSQL_PORT=:3306\n")
 		if got != "3306" {
-			t.Errorf("expected settings.MySqlSettings.Port '3306', got %q", got)
+			t.Errorf("expected settings.MySQL.Port '3306', got %q", got)
 		}
 	})
 
 	t.Run("port without leading colon", func(t *testing.T) {
 		got := testPort(t, "MYSQL_PORT=3307\n")
 		if got != "3307" {
-			t.Errorf("expected settings.MySqlSettings.Port '3307', got %q", got)
+			t.Errorf("expected settings.MySQL.Port '3307', got %q", got)
 		}
 	})
 
@@ -97,7 +97,7 @@ func TestLoadSettings_MySQLPort(t *testing.T) {
 		t.Setenv("MYSQL_PORT", "")
 		got := testPort(t, "DEBUG=true\n")
 		if got != "3306" {
-			t.Errorf("expected default settings.MySqlSettings.Port '3306', got %q", got)
+			t.Errorf("expected default settings.MySQL.Port '3306', got %q", got)
 		}
 	})
 

@@ -264,7 +264,7 @@ func LoggerMiddleware(sink LogSink, l Logger) func(HandlerFuncWithError) Handler
 				Status:    status,
 				Method:    c.Request.Method,
 				Error:     errMsg,
-				Endpoint:  utils.GetUrl(c.Request, c.Request.URL.Path),
+				Endpoint:  utils.GetUrl(c.Request),
 				CreatedAt: time.Now().UTC(),
 				Response:  types.RawJSON(blw.body.String()),
 				Request:   types.RawJSON(requestBody),

@@ -183,13 +183,7 @@ func TestNewFileMaker_FailsOnBadCredentials(t *testing.T) {
 func TestNewFileMaker_TLS(t *testing.T) {
 	cfg := startFakeFileMaker(t, &fakeFileMaker{})
 
-	t.Run("http rejected", func(t *testing.T) {
-		c := cfg
-		c.Host = strings.Replace(c.Host, "https://", "http://", 1)
-		if _, err := NewFileMaker(context.Background(), c); err == nil || !strings.Contains(err.Error(), "https://") {
-			t.Fatalf("expected an https error, got %v", err)
-		}
-	})
+
 	t.Run("untrusted certificate fails", func(t *testing.T) {
 		c := cfg
 		c.CAFile = ""

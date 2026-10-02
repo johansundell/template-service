@@ -17,7 +17,7 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 				Port:    ":8080",
 				Timeout: 10 * time.Second,
 				Storage: StorageMySQL,
-				MySqlSettings: struct {
+				MySQL: struct {
 					Username string `json:"username"`
 					Password string `json:"password"`
 					Host     string `json:"host"`
@@ -33,7 +33,7 @@ func TestAppSettingsValidate_MySQLRequirements(t *testing.T) {
 				Port:    ":8080",
 				Timeout: 10 * time.Second,
 				Storage: StorageMySQL,
-				MySqlSettings: struct {
+				MySQL: struct {
 					Username string `json:"username"`
 					Password string `json:"password"`
 					Host     string `json:"host"`
