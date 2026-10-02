@@ -15,10 +15,6 @@ import (
 
 var settings types.AppSettings
 
-func init() {
-	loadSettings()
-}
-
 func loadSettings(filenames ...string) {
 	// Load or reload .env file (Load preserves already set environment variables)
 	if len(filenames) > 0 {
