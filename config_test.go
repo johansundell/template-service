@@ -10,7 +10,30 @@ import (
 	"github.com/johansundell/template-service/utils"
 )
 
+func unsetEnv(keys ...string) func() {
+	orig := make(map[string]string)
+	has := make(map[string]bool)
+	for _, k := range keys {
+		if v, ok := os.LookupEnv(k); ok {
+			orig[k] = v
+			has[k] = true
+		}
+		os.Unsetenv(k)
+	}
+	return func() {
+		for _, k := range keys {
+			if has[k] {
+				os.Setenv(k, orig[k])
+			} else {
+				os.Unsetenv(k)
+			}
+		}
+	}
+}
+
 func TestLoadSettings(t *testing.T) {
+	defer unsetEnv("PORT", "DEBUG")()
+
 	// Create a temporary env file
 	tmpEnv, err := os.CreateTemp("", ".env.*")
 	if err != nil {
@@ -37,8 +60,30 @@ func TestLoadSettings(t *testing.T) {
 	loadSettings()
 }
 
+func TestLoadSettings_Precedence(t *testing.T) {
+	t.Setenv("PORT", ":8888") // Real environment
+	
+	tmpEnv, err := os.CreateTemp("", ".env.*")
+	if err != nil {
+		t.Fatalf("Failed to create temp env file: %v", err)
+	}
+	defer os.Remove(tmpEnv.Name())
+
+	_, err = tmpEnv.WriteString("PORT=:9999\n") // .env file
+	if err != nil {
+		t.Fatalf("Failed to write to temp env file: %v", err)
+	}
+	tmpEnv.Close()
+
+	loadSettings(tmpEnv.Name())
+
+	if settings.Port != ":8888" {
+		t.Errorf("expected settings.Port :8888 (real env wins), got %s", settings.Port)
+	}
+}
+
 func TestLoadSettings_NoDefaultAuthToken(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", "")
+	defer unsetEnv("AUTH_TOKEN", "PORT")()
 
 	tmpEnv, err := os.CreateTemp("", ".env.*")
 	if err != nil {
@@ -64,6 +109,7 @@ func TestLoadSettings_NoDefaultAuthToken(t *testing.T) {
 
 func TestLoadSettings_MySQLPort(t *testing.T) {
 	testPort := func(t *testing.T, content string) string {
+		defer unsetEnv("MYSQL_PORT")()
 		tmpEnv, err := os.CreateTemp("", ".env.*")
 		if err != nil {
 			t.Fatalf("Failed to create temp env file: %v", err)
@@ -94,7 +140,6 @@ func TestLoadSettings_MySQLPort(t *testing.T) {
 	})
 
 	t.Run("default port when unset", func(t *testing.T) {
-		t.Setenv("MYSQL_PORT", "")
 		got := testPort(t, "DEBUG=true\n")
 		if got != "3306" {
 			t.Errorf("expected default settings.MySQL.Port '3306', got %q", got)
@@ -106,17 +151,8 @@ func TestLoadSettings_MySQLPort(t *testing.T) {
 }
 
 func TestLoadSettings_SqlitePath(t *testing.T) {
-	orig := os.Getenv("SQLITE_PATH")
-	defer func() {
-		if orig == "" {
-			os.Unsetenv("SQLITE_PATH")
-		} else {
-			os.Setenv("SQLITE_PATH", orig)
-		}
-		loadSettings()
-	}()
-
 	testPath := func(t *testing.T, content string) string {
+		defer unsetEnv("SQLITE_PATH")()
 		tmpEnv, err := os.CreateTemp("", ".env.*")
 		if err != nil {
 			t.Fatalf("Failed to create temp env file: %v", err)
@@ -142,7 +178,6 @@ func TestLoadSettings_SqlitePath(t *testing.T) {
 	})
 
 	t.Run("default sqlite path when unset", func(t *testing.T) {
-		os.Unsetenv("SQLITE_PATH")
 		got := testPath(t, "DEBUG=true\n")
 		expected := filepath.Join(utils.GetBinaryBasePath(), nameOfService+".db")
 		if got != expected {
@@ -153,7 +188,7 @@ func TestLoadSettings_SqlitePath(t *testing.T) {
 
 func TestLoadSettings_Storage(t *testing.T) {
 	loadWith := func(t *testing.T, content string) string {
-		t.Setenv("STORAGE", "")
+		defer unsetEnv("STORAGE")()
 		tmpEnv, err := os.CreateTemp("", ".env.*")
 		if err != nil {
 			t.Fatalf("Failed to create temp env file: %v", err)
@@ -184,10 +219,8 @@ func TestLoadSettings_Storage(t *testing.T) {
 }
 
 func TestLoadSettings_FileMaker(t *testing.T) {
-	for _, k := range []string{"FMS_HOST", "FMS_DATABASE", "FMS_USERNAME", "FMS_PASSWORD", "FMS_TIMEOUT", "FMS_LOG_TABLE", "FMS_CA_FILE", "FMS_INSECURE_SKIP_VERIFY", "STORAGE"} {
-		t.Setenv(k, "")
-	}
 	load := func(t *testing.T, content string) types.FileMakerSettings {
+		defer unsetEnv("FMS_HOST", "FMS_DATABASE", "FMS_USERNAME", "FMS_PASSWORD", "FMS_TIMEOUT", "FMS_LOG_TABLE", "FMS_CA_FILE", "FMS_INSECURE_SKIP_VERIFY", "STORAGE")()
 		tmpEnv, err := os.CreateTemp("", ".env.*")
 		if err != nil {
 			t.Fatalf("Failed to create temp env file: %v", err)
@@ -220,8 +253,8 @@ func TestLoadSettings_FileMaker(t *testing.T) {
 }
 
 func TestLoadSettings_Timeout(t *testing.T) {
-	t.Setenv("TIMEOUT", "")
 	load := func(content string) time.Duration {
+		defer unsetEnv("TIMEOUT")()
 		tmpEnv, err := os.CreateTemp("", ".env.*")
 		if err != nil {
 			t.Fatalf("Failed to create temp env file: %v", err)

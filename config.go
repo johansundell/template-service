@@ -20,16 +20,16 @@ func init() {
 }
 
 func loadSettings(filenames ...string) {
-	// Load or reload .env file (Overload overrides already set environment variables)
+	// Load or reload .env file (Load preserves already set environment variables)
 	if len(filenames) > 0 {
-		if err := godotenv.Overload(filenames...); err != nil {
+		if err := godotenv.Load(filenames...); err != nil {
 			log.Println("No .env file found, using default/environment values")
 		}
 	} else {
-		if err := godotenv.Overload(); err != nil {
+		if err := godotenv.Load(); err != nil {
 			if exe, exeErr := os.Executable(); exeErr == nil {
 				envPath := filepath.Join(filepath.Dir(exe), ".env")
-				if err = godotenv.Overload(envPath); err != nil {
+				if err = godotenv.Load(envPath); err != nil {
 					log.Println("No .env file found, using default/environment values")
 				}
 			} else {
