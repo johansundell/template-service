@@ -19,6 +19,7 @@ import (
 
 // fileMakerFields are the log table's fields, in the order they are selected.
 var fileMakerFields = []string{"ID", "Status", "Method", "Error", "Endpoint", "CreatedAt", "Request", "Response"}
+var fileMakerSelectFields = strings.Join(fileMakerFields, ",")
 
 // fileMakerTimeLayout writes CreatedAt as UTC without an offset: FileMaker
 // timestamps have no time zone, and an offset is read relative to the
@@ -33,12 +34,9 @@ type FileMakerStore struct {
 
 // NewFileMaker connects to FileMaker Server and checks, within ctx, that the
 // log table (cfg.LogTable) and all its fields can be read. The table is never
-// created here. cfg.Host must start with https://; cfg.CAFile adds trusted
-// CAs and cfg.InsecureSkipVerify disables certificate checks.
+// created here. cfg.CAFile adds trusted CAs and cfg.InsecureSkipVerify
+// disables certificate checks.
 func NewFileMaker(ctx context.Context, cfg types.FileMakerSettings) (*FileMakerStore, error) {
-	if !strings.HasPrefix(cfg.Host, "https://") {
-		return nil, fmt.Errorf("FileMaker host %q must start with https://", cfg.Host)
-	}
 	tlsConfig, err := fileMakerTLSConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -57,7 +55,7 @@ func NewFileMaker(ctx context.Context, cfg types.FileMakerSettings) (*FileMakerS
 	}
 
 	query := url.Values{}
-	query.Set("$select", strings.Join(fileMakerFields, ","))
+	query.Set("$select", fileMakerSelectFields)
 	query.Set("$top", "0")
 	if _, err := s.client.GetRecords(ctx, s.table, query); err != nil {
 		s.client.CloseIdleConnections()
@@ -127,7 +125,7 @@ func classifyFileMakerError(err error) error {
 
 func (s *FileMakerStore) GetLogs(ctx context.Context, from, to time.Time, page Page) ([]types.UsageLog, error) {
 	query := url.Values{}
-	query.Set("$select", strings.Join(fileMakerFields, ","))
+	query.Set("$select", fileMakerSelectFields)
 	query.Set("$filter", fmt.Sprintf("CreatedAt ge %s and CreatedAt lt %s",
 		from.UTC().Format(fileMakerTimeLayout), to.UTC().Format(fileMakerTimeLayout)))
 	query.Set("$orderby", "CreatedAt asc,ID asc")

@@ -97,7 +97,7 @@ func TestOpenStore_FileMakerMapsSettings(t *testing.T) {
 	}
 	defer func() { newFileMakerStore = orig }()
 
-	if _, err := openStore(); err == nil {
+	if _, _, err := openStore(); err == nil {
 		t.Fatal("expected the constructor's error to be returned")
 	}
 	want := settings.FileMaker

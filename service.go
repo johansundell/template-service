@@ -89,7 +89,7 @@ func (p *program) startWorker() error {
 func (p *program) run(startup chan<- error) error {
 	logInfo("I'm running %v, with version %v.", service.Platform(), Version)
 
-	st, err := openStore()
+	st, pingTimeout, err := openStore()
 	if err != nil {
 		logError("failed to initialize %s storage: %v", settings.Storage, err)
 		startup <- err
@@ -97,10 +97,6 @@ func (p *program) run(startup chan<- error) error {
 	}
 	defer st.Close()
 
-	pingTimeout := 5 * time.Second
-	if settings.Storage == types.StorageFileMaker {
-		pingTimeout = settings.FileMaker.Timeout // FMS_TIMEOUT covers the whole startup check
-	}
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), pingTimeout)
 	err = st.Ping(pingCtx)
 	cancelPing()
@@ -186,27 +182,41 @@ func (p *program) run(startup chan<- error) error {
 	return nil
 }
 
+func wrapStore[T store.Store](s T, err error) (store.Store, error) {
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 // storeOpeners opens each STORAGE backend. Keep it in step with
 // types.StorageBackends (TestStoreOpenersMatchStorageBackends).
-var storeOpeners = map[string]func() (store.Store, error){
-	types.StorageSQLite: func() (store.Store, error) { return newSQLiteStore(settings.SqlitePath) },
-	types.StorageMySQL:  func() (store.Store, error) { return newMySQLStore(settings.MySqlSettings) },
-	types.StorageFileMaker: func() (store.Store, error) {
+var storeOpeners = map[string]func() (store.Store, time.Duration, error){
+	types.StorageSQLite: func() (store.Store, time.Duration, error) {
+		s, err := newSQLiteStore(settings.SqlitePath)
+		return s, 5 * time.Second, err
+	},
+	types.StorageMySQL: func() (store.Store, time.Duration, error) {
+		s, err := newMySQLStore(settings.MySQL)
+		return s, 5 * time.Second, err
+	},
+	types.StorageFileMaker: func() (store.Store, time.Duration, error) {
 		fm := settings.FileMaker
 		if fm.InsecureSkipVerify {
 			logWarning("FMS_INSECURE_SKIP_VERIFY is set: the FileMaker Server certificate is NOT verified, so credentials can be intercepted. Use FMS_CA_FILE instead.")
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), fm.Timeout)
 		defer cancel()
-		return newFileMakerStore(ctx, fm)
+		s, err := newFileMakerStore(ctx, fm)
+		return s, fm.Timeout, err
 	},
 }
 
 // openStore opens the storage backend chosen with STORAGE.
-func openStore() (store.Store, error) {
+func openStore() (store.Store, time.Duration, error) {
 	open, ok := storeOpeners[settings.Storage]
 	if !ok {
-		return nil, fmt.Errorf("unsupported STORAGE %q", settings.Storage)
+		return nil, 0, fmt.Errorf("unsupported STORAGE %q", settings.Storage)
 	}
 	return open()
 }

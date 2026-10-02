@@ -30,9 +30,8 @@ func mysqlConfig(s types.MySQLSettings) mysql.Config {
 	return *cfg
 }
 
-// NewMySQL connects to MySQL and returns a store that owns the connection.
-// Timestamps are stored in UTC.
-func NewMySQL(s types.MySQLSettings) (Store, error) {
+// openMySQL connects to MySQL and configures the connection pool.
+func openMySQL(s types.MySQLSettings) (*sql.DB, error) {
 	cfg := mysqlConfig(s)
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
@@ -43,6 +42,17 @@ func NewMySQL(s types.MySQLSettings) (Store, error) {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)
+
+	return db, nil
+}
+
+// NewMySQL connects to MySQL and returns a store that owns the connection.
+// Timestamps are stored in UTC.
+func NewMySQL(s types.MySQLSettings) (Store, error) {
+	db, err := openMySQL(s)
+	if err != nil {
+		return nil, err
+	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS request_logs (
 		id INT AUTO_INCREMENT PRIMARY KEY,

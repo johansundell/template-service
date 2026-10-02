@@ -38,19 +38,16 @@ func TestGetUrl(t *testing.T) {
 	tests := []struct {
 		name     string
 		url      string
-		path     string
 		expected string
 	}{
 		{
 			name:     "no query string",
 			url:      "http://example.com/test",
-			path:     "/test",
 			expected: "/test",
 		},
 		{
 			name:     "with query string",
 			url:      "http://example.com/test?a=1&b=2",
-			path:     "/test",
 			expected: "/test?a=1&b=2",
 		},
 	}
@@ -58,7 +55,7 @@ func TestGetUrl(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			req, _ := http.NewRequest("GET", tc.url, nil)
-			got := GetUrl(req, tc.path)
+			got := GetUrl(req)
 			if got != tc.expected {
 				t.Errorf("GetUrl() = %q, want %q", got, tc.expected)
 			}

@@ -46,7 +46,7 @@ type AppSettings struct {
 	Storage       string            `json:"storage"`
 	AuthToken     string            `json:"authToken"`
 	SqlitePath    string            `json:"sqlitePath"`
-	MySqlSettings MySQLSettings     `json:"mysql"`
+	MySQL MySQLSettings     `json:"mysql"`
 	FileMaker     FileMakerSettings `json:"filemaker"`
 }
 
@@ -61,7 +61,7 @@ func (s AppSettings) Validate() error {
 	switch s.Storage {
 	case StorageSQLite:
 	case StorageMySQL:
-		if s.MySqlSettings.Username == "" || s.MySqlSettings.Host == "" || s.MySqlSettings.Database == "" {
+		if s.MySQL.Username == "" || s.MySQL.Host == "" || s.MySQL.Database == "" {
 			return fmt.Errorf("MYSQL_USERNAME, MYSQL_HOST and MYSQL_DATABASE must be set when STORAGE=mysql")
 		}
 	case StorageFileMaker:

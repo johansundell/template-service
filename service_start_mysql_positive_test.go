@@ -12,10 +12,10 @@ import (
 func TestStart_WithMySQLStorage_UsesMockedConstructor(t *testing.T) {
 	originalSettings := settings
 	settings = types.AppSettings{Port: freeAddr(t), Timeout: 15 * time.Second, Storage: types.StorageMySQL, AuthToken: "test-token"}
-	settings.MySqlSettings.Username = "user"
-	settings.MySqlSettings.Host = "localhost"
-	settings.MySqlSettings.Port = "3306"
-	settings.MySqlSettings.Database = "db"
+	settings.MySQL.Username = "user"
+	settings.MySQL.Host = "localhost"
+	settings.MySQL.Port = "3306"
+	settings.MySQL.Database = "db"
 	defer func() { settings = originalSettings }()
 
 	// Return a SQLite store instead of connecting to MySQL, and capture the config
@@ -35,7 +35,7 @@ func TestStart_WithMySQLStorage_UsesMockedConstructor(t *testing.T) {
 		t.Fatalf("expected Stop to succeed, got error: %v", err)
 	}
 
-	if captured != settings.MySqlSettings {
+	if captured != settings.MySQL {
 		t.Errorf("expected the MYSQL_* settings to be passed on, got %+v", captured)
 	}
 }
