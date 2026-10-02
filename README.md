@@ -144,8 +144,10 @@ The service resolves paths relative to **its binary's folder**: the `assets` and
 To run the service using Docker Compose:
 
 ```bash
-docker compose up --build
+make docker-run
 ```
+
+This runs `docker compose up --build` while automatically injecting the correct `VERSION` from the `Makefile`.
 
 This will start the service on port 8080, with the SQLite database (including its WAL and SHM files) in the named Docker volume `data`, mounted at `/app/data`. The volume keeps the data across `docker compose down` and rebuilds; **`docker compose down -v` deletes it**.
 

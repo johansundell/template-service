@@ -38,7 +38,16 @@ dist: compile
 		echo $$f; \
 	done
 
-release: dist
+docker:
+	docker build --build-arg VERSION=$(VERSION) -t $(GHACCOUNT)/$(NAME):$(VERSION) .
+
+docker-push: docker
+	docker push $(GHACCOUNT)/$(NAME):$(VERSION)
+
+docker-run:
+	VERSION=$(VERSION) docker compose up -d --build
+
+release: dist docker-push
 	@latest_tag=$$(git describe --tags `git rev-list --tags --max-count=1`); \
 	comparison="$$latest_tag..HEAD"; \
 	if [ -z "$$latest_tag" ]; then comparison=""; fi; \
@@ -46,4 +55,4 @@ release: dist
 	github-release $(GHACCOUNT)/$(NAME) $(VERSION) "$$(git rev-parse --abbrev-ref HEAD)" "**Changelog**<br/>$$changelog" 'dist/*'; \
 	git pull
 
-.PHONY: build compile install deps dist release
+.PHONY: build compile install deps dist release docker docker-push docker-run

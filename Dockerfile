@@ -12,7 +12,7 @@ COPY . .
 
 # Pure Go build (no CGO needed for ncruces/go-sqlite3)
 # Same format as the Makefile VERSION (git tag), e.g. v0.0.6
-ARG VERSION=v0.0.6
+ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X 'main.Version=${VERSION}'" \
     -o template-service .
